@@ -122,3 +122,8 @@ Contributions are welcome! If you have ideas for new features, find a bug, or wa
 4.  Commit your changes (`git commit -am 'Add some feature'`).
 5.  Push to the branch (`git push origin feature/my-new-feature`).
 6.  Create a new Pull Request.
+
+
+![image](https://github.com/user-attachments/assets/676616a9-a5fc-4585-8f51-639088a37416)
+![image](https://github.com/user-attachments/assets/3d98a191-4804-47a2-9714-c9b72a03e7b2)
+
