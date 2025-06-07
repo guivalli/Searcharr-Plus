@@ -16,61 +16,60 @@ from dotenv import load_dotenv
 load_dotenv()
 os.makedirs('logs', exist_ok=True)
 os.makedirs('config', exist_ok=True)
-
-# Logger
 log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 log_file = 'logs/bot.log'
-file_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=2)
+file_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=2, encoding='utf-8')
 file_handler.setFormatter(log_formatter)
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-if logger.hasHandlers():
-    logger.handlers.clear()
+if logger.hasHandlers(): logger.handlers.clear()
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-# --- Gerenciamento de Configuração e Idioma ---
+# --- Gerenciamento de Configuração, Idioma e Login ---
 CONFIG_FILE = 'config/config.json'
 CONFIG = {}
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+BOT_USER = os.getenv('BOT_USER')
+BOT_PASSWORD = os.getenv('BOT_PASSWORD')
 SUBSCRIBED_PROVIDER_IDS = set()
 
-# Dicionário de Traduções
+# Estados da conversa
+(GET_USERNAME, GET_PASSWORD) = range(2)
+(
+    GET_RADARR_URL, GET_RADARR_API, GET_RADARR_QUALITY, GET_RADARR_PATH,
+    GET_SONARR_URL, GET_SONARR_API, GET_SONARR_QUALITY, GET_SONARR_PATH,
+    GET_OVERSEERR_URL, GET_OVERSEERR_API,
+    GET_STREAMING_SERVICES, GET_COUNTRY_CODE
+) = range(2, 14)
+
+# Dicionário de Traduções (COMPLETO)
 translations = {
     'en': {
-        "start_msg": "Hello! Use /movie <name> or /show <name> to search.\nUse /setup to (re)configure the bot and /language to change the language.",
-        "help_text": (
-            "Here are the available commands:\n"
-            "/start - Check if the bot is running.\n"
-            "/movie <name> - Search for a movie.\n"
-            "/show <name> - Search for a series.\n"
-            "/setup - Start the guided configuration process.\n"
-            "/language - Change the bot's language.\n"
-            "/streaming - List available streaming service codes.\n"
-            "/help - Show this help message."
-        ),
-        "streaming_help": "Here are the available streaming service codes for configuration:\n",
-        "setup_needed": "The bot needs to be configured first. Use /setup.",
+        "start_msg": "Hello! Please /login to use the bot.",
+        "help_text": "Available commands:\n/start - Welcome message\n/login - Authenticate\n/logout - End session\n/movie <name> - Search movie\n/show <name> - Search series\n/setup - Guided configuration\n/language - Change language\n/streaming - List codes\n/help - This message",
+        "streaming_help": "Available streaming service codes for setup:\n",
+        "setup_needed": "Bot needs to be configured. Use /setup.",
         "setup_welcome": "Hello! Let's set up the bot.\nUse /cancel to stop or /skip to skip a section (Radarr/Sonarr).\n\nWhat is the full URL of your Radarr (e.g., http://192.168.1.10:7878)?",
         "setup_skip_radarr": "Skipping Radarr setup.",
         "setup_skip_sonarr": "Skipping Sonarr setup.",
         "radarr_not_configured": "Radarr is not configured. Use /setup to add it.",
         "sonarr_not_configured": "Sonarr is not configured. Use /setup to add it.",
-        "setup_radarr_api": "Got it. Now, what is the Radarr API Key?",
-        "setup_radarr_quality": "What is the Radarr Quality Profile ID?",
-        "setup_radarr_path": "And what is the Radarr Root Folder Path (e.g., /movies/)?",
-        "setup_sonarr_url": "Perfect. Now for Sonarr. What is the full Sonarr URL?",
-        "setup_sonarr_api": "Got it. And the Sonarr API Key?",
-        "setup_sonarr_quality": "What is the Sonarr Quality Profile ID?",
-        "setup_sonarr_path": "What is the Sonarr Root Folder Path (e.g., /tv/)?",
-        "setup_overseerr_url": "Almost there! What is your Overseerr's full URL?",
+        "setup_radarr_api": "Got it. Radarr API Key?",
+        "setup_radarr_quality": "Radarr Quality Profile ID?",
+        "setup_radarr_path": "Radarr Root Folder Path (e.g., /movies/)?",
+        "setup_sonarr_url": "Perfect. Now, Sonarr's full URL?",
+        "setup_sonarr_api": "Got it. Sonarr API Key?",
+        "setup_sonarr_quality": "Sonarr Quality Profile ID?",
+        "setup_sonarr_path": "Sonarr Root Folder Path (e.g., /tv/)?",
+        "setup_overseerr_url": "Almost there! Overseerr's full URL?",
         "setup_overseerr_api": "And the Overseerr API Key?",
-        "setup_streaming": "Now, enter the codes for your streaming services, separated by commas (e.g., nfx,amp,max). Use /streaming to see all options.",
-        "setup_country": "Last question: What is your country code for JustWatch (e.g., US, GB, BR)?",
+        "setup_streaming": "Enter your streaming service codes, comma-separated (e.g., nfx,amp,max). Use /streaming for options.",
+        "setup_country": "Last question: Your country code for JustWatch (e.g., US, BR)?",
         "setup_finished": "Excellent! Saving configuration...",
-        "setup_success": "✅ Configuration saved! The bot is ready to use. You can change the language with /language.",
+        "setup_success": "✅ Configuration saved! The bot is ready. Change language with /language.",
         "setup_canceled": "Setup canceled.",
         "language_prompt": "Please choose your language:",
         "language_set": "Language set to {lang}.",
@@ -91,39 +90,37 @@ translations = {
         "add_movie_btn": "➕ Add Movie",
         "add_show_btn": "➕ Add Series",
         "cancel_btn": "❌ Cancel",
+        "login_prompt_user": "Please enter your username.",
+        "login_prompt_pass": "Please enter your password.",
+        "login_success": "✅ Login successful! Use /help to see commands.",
+        "login_fail": "❌ Invalid credentials. Please try /login again.",
+        "login_needed": "You must be logged in. Please use /login.",
+        "logout_success": "You have been logged out.",
+        "already_logged_in": "You are already logged in.",
     },
     'pt': {
-        "start_msg": "Olá! Use /movie <nome> ou /show <nome> para buscar.\nUse /setup para (re)configurar o bot e /language para mudar o idioma.",
-        "help_text": (
-            "Aqui estão os comandos disponíveis:\n"
-            "/start - Verifica se o bot está funcionando.\n"
-            "/movie <nome> - Procura por um filme.\n"
-            "/show <nome> - Procura por uma série.\n"
-            "/setup - Inicia o processo de configuração guiada.\n"
-            "/language - Altera o idioma do bot.\n"
-            "/streaming - Lista os códigos de serviços de streaming disponíveis.\n"
-            "/help - Mostra esta mensagem de ajuda."
-        ),
-        "streaming_help": "Aqui estão os códigos de serviços de streaming disponíveis para a configuração:\n",
-        "setup_needed": "O bot precisa ser configurado primeiro. Use /setup.",
+        "start_msg": "Olá! Por favor, use /login para usar o bot.",
+        "help_text": "Comandos disponíveis:\n/start - Mensagem de boas-vindas\n/login - Autenticar\n/logout - Encerrar sessão\n/movie <nome> - Procurar filme\n/show <nome> - Procurar série\n/setup - Configuração guiada\n/language - Mudar idioma\n/streaming - Listar códigos\n/help - Esta mensagem",
+        "streaming_help": "Códigos de serviços de streaming disponíveis para a configuração:\n",
+        "setup_needed": "O bot precisa ser configurado. Use /setup.",
         "setup_welcome": "Olá! Vamos configurar o bot.\nUse /cancel para parar ou /skip para pular uma seção (Radarr/Sonarr).\n\nQual a URL completa do seu Radarr (ex: http://192.168.1.10:7878)?",
         "setup_skip_radarr": "Pulando configuração do Radarr.",
         "setup_skip_sonarr": "Pulando configuração do Sonarr.",
         "radarr_not_configured": "O Radarr não está configurado. Use /setup para adicioná-lo.",
         "sonarr_not_configured": "O Sonarr não está configurado. Use /setup para adicioná-lo.",
-        "setup_radarr_api": "Ok. Agora, qual a Chave de API (API Key) do Radarr?",
-        "setup_radarr_quality": "Qual o ID do Perfil de Qualidade (Quality Profile ID) do Radarr?",
-        "setup_radarr_path": "E qual o Caminho da Pasta Raiz (Root Folder Path) do Radarr (ex: /movies/)?",
-        "setup_sonarr_url": "Perfeito. Agora para o Sonarr. Qual a URL completa do Sonarr?",
-        "setup_sonarr_api": "Ok. E a Chave de API (API Key) do Sonarr?",
-        "setup_sonarr_quality": "Qual o ID do Perfil de Qualidade (Quality Profile ID) do Sonarr?",
-        "setup_sonarr_path": "Qual o Caminho da Pasta Raiz (Root Folder Path) do Sonarr (ex: /tv/)?",
-        "setup_overseerr_url": "Quase lá! Qual a URL completa do seu Overseerr?",
-        "setup_overseerr_api": "E a Chave de API (API Key) do Overseerr?",
-        "setup_streaming": "Agora, informe os códigos dos seus serviços de streaming, separados por vírgula (ex: nfx,amp,max). Use /streaming para ver todas as opções.",
-        "setup_country": "Última pergunta: Qual o código do seu país para o JustWatch (ex: BR, US, PT)?",
+        "setup_radarr_api": "Ok. Chave de API (API Key) do Radarr?",
+        "setup_radarr_quality": "ID do Perfil de Qualidade do Radarr?",
+        "setup_radarr_path": "Caminho da Pasta Raiz do Radarr (ex: /movies/)?",
+        "setup_sonarr_url": "Perfeito. Agora, a URL completa do Sonarr?",
+        "setup_sonarr_api": "Ok. Chave de API (API Key) do Sonarr?",
+        "setup_sonarr_quality": "ID do Perfil de Qualidade do Sonarr?",
+        "setup_sonarr_path": "Caminho da Pasta Raiz do Sonarr (ex: /tv/)?",
+        "setup_overseerr_url": "Quase lá! URL completa do seu Overseerr?",
+        "setup_overseerr_api": "E a Chave de API do Overseerr?",
+        "setup_streaming": "Informe os códigos dos seus serviços de streaming, separados por vírgula (ex: nfx,amp,max). Use /streaming para opções.",
+        "setup_country": "Última pergunta: Código do seu país para o JustWatch (ex: BR, US)?",
         "setup_finished": "Excelente! Salvando configuração...",
-        "setup_success": "✅ Configuração salva! O bot está pronto para ser usado. Você pode mudar o idioma com /language.",
+        "setup_success": "✅ Configuração salva! O bot está pronto. Mude o idioma com /language.",
         "setup_canceled": "Configuração cancelada.",
         "language_prompt": "Por favor, escolha seu idioma:",
         "language_set": "Idioma alterado para {lang}.",
@@ -144,39 +141,37 @@ translations = {
         "add_movie_btn": "➕ Adicionar Filme",
         "add_show_btn": "➕ Adicionar Série",
         "cancel_btn": "❌ Cancelar",
+        "login_prompt_user": "Por favor, digite seu nome de usuário.",
+        "login_prompt_pass": "Por favor, digite sua senha.",
+        "login_success": "✅ Login realizado com sucesso! Use /help para ver os comandos.",
+        "login_fail": "❌ Credenciais inválidas. Tente /login novamente.",
+        "login_needed": "Você precisa estar logado. Por favor, use /login.",
+        "logout_success": "Você foi desconectado.",
+        "already_logged_in": "Você já está logado.",
     },
     'es': {
-        "start_msg": "¡Hola! Usa /movie <nombre> o /show <nombre> para buscar.\nUsa /setup para (re)configurar el bot y /language para cambiar el idioma.",
-        "help_text": (
-            "Aquí están los comandos disponibles:\n"
-            "/start - Comprueba si el bot está funcionando.\n"
-            "/movie <nombre> - Busca una película.\n"
-            "/show <nombre> - Busca una serie.\n"
-            "/setup - Inicia el proceso de configuración guiada.\n"
-            "/language - Cambia el idioma del bot.\n"
-            "/streaming - Lista los códigos de servicios de streaming disponibles.\n"
-            "/help - Muestra este mensaje de ayuda."
-        ),
-        "streaming_help": "Aquí están los códigos de servicios de streaming disponibles para la configuración:\n",
-        "setup_needed": "El bot necesita ser configurado primero. Usa /setup.",
+        "start_msg": "¡Hola! Por favor, usa /login para utilizar el bot.",
+        "help_text": "Comandos disponibles:\n/start - Mensaje de bienvenida\n/login - Autenticarse\n/logout - Cerrar sesión\n/movie <nombre> - Buscar película\n/show <nombre> - Buscar serie\n/setup - Configuración guiada\n/language - Cambiar idioma\n/streaming - Listar códigos\n/help - Este mensaje",
+        "streaming_help": "Códigos de servicios de streaming disponibles para la configuración:\n",
+        "setup_needed": "El bot necesita ser configurado. Usa /setup.",
         "setup_welcome": "¡Hola! Vamos a configurar el bot.\nUsa /cancel para detenerte o /skip para saltar una sección (Radarr/Sonarr).\n\n¿Cuál es la URL completa de tu Radarr (ej: http://192.168.1.10:7878)?",
         "setup_skip_radarr": "Saltando configuración de Radarr.",
         "setup_skip_sonarr": "Saltando configuración de Sonarr.",
         "radarr_not_configured": "Radarr no está configurado. Usa /setup para agregarlo.",
         "sonarr_not_configured": "Sonarr no está configurado. Usa /setup para agregarlo.",
-        "setup_radarr_api": "Entendido. Ahora, ¿cuál es la Clave de API (API Key) de Radarr?",
-        "setup_radarr_quality": "¿Cuál es el ID del Perfil de Calidad (Quality Profile ID) de Radarr?",
-        "setup_radarr_path": "¿Y cuál es la Ruta de la Carpeta Raíz (Root Folder Path) de Radarr (ej: /movies/)?",
-        "setup_sonarr_url": "Perfecto. Ahora para Sonarr. ¿Cuál es la URL completa de Sonarr?",
-        "setup_sonarr_api": "Entendido. ¿Y la Clave de API (API Key) de Sonarr?",
-        "setup_sonarr_quality": "¿Cuál es el ID del Perfil de Calidad (Quality Profile ID) de Sonarr?",
-        "setup_sonarr_path": "¿Cuál es la Ruta de la Carpeta Raíz (Root Folder Path) de Sonarr (ej: /tv/)?",
-        "setup_overseerr_url": "¡Casi listo! ¿Cuál es la URL completa de tu Overseerr?",
-        "setup_overseerr_api": "¿Y la Clave de API (API Key) de Overseerr?",
-        "setup_streaming": "Ahora, introduce los códigos de tus servicios de streaming, separados por comas (ej: nfx,amp,max). Usa /streaming para ver todas las opciones.",
-        "setup_country": "Última pregunta: ¿Cuál es el código de tu país para JustWatch (ej: ES, MX, US)?",
+        "setup_radarr_api": "Entendido. ¿Clave de API (API Key) de Radarr?",
+        "setup_radarr_quality": "¿ID del Perfil de Calidad de Radarr?",
+        "setup_radarr_path": "¿Ruta de la Carpeta Raíz de Radarr (ej: /movies/)?",
+        "setup_sonarr_url": "Perfecto. Ahora, ¿URL completa de Sonarr?",
+        "setup_sonarr_api": "Entendido. ¿Clave de API (API Key) de Sonarr?",
+        "setup_sonarr_quality": "¿ID del Perfil de Calidad de Sonarr?",
+        "setup_sonarr_path": "¿Ruta de la Carpeta Raíz de Sonarr (ej: /tv/)?",
+        "setup_overseerr_url": "¡Casi listo! ¿URL completa de tu Overseerr?",
+        "setup_overseerr_api": "¿Y la Clave de API de Overseerr?",
+        "setup_streaming": "Introduce los códigos de tus servicios de streaming, separados por comas (ej: nfx,amp,max). Usa /streaming para opciones.",
+        "setup_country": "Última pregunta: ¿Código de tu país para JustWatch (ej: ES, MX)?",
         "setup_finished": "¡Excelente! Guardando configuración...",
-        "setup_success": "✅ ¡Configuración guardada! El bot está listo para usarse. Puedes cambiar el idioma con /language.",
+        "setup_success": "✅ ¡Configuración guardada! El bot está listo. Cambia el idioma con /language.",
         "setup_canceled": "Configuración cancelada.",
         "language_prompt": "Por favor, elige tu idioma:",
         "language_set": "Idioma cambiado a {lang}.",
@@ -197,16 +192,19 @@ translations = {
         "add_movie_btn": "➕ Añadir Película",
         "add_show_btn": "➕ Añadir Serie",
         "cancel_btn": "❌ Cancelar",
+        "login_prompt_user": "Por favor, introduce tu nombre de usuario.",
+        "login_prompt_pass": "Por favor, introduce tu contraseña.",
+        "login_success": "✅ ¡Inicio de sesión exitoso! Usa /help para ver los comandos.",
+        "login_fail": "❌ Credenciales inválidas. Intenta /login de nuevo.",
+        "login_needed": "Debes iniciar sesión. Por favor, usa /login.",
+        "logout_success": "Has cerrado la sesión.",
+        "already_logged_in": "Ya has iniciado sesión.",
     }
 }
 
 def get_text(key, lang=None):
     if lang is None: lang = CONFIG.get('LANGUAGE', 'en')
     return translations.get(lang, translations['en']).get(key, f"_{key}_")
-
-(GET_RADARR_URL, GET_RADARR_API, GET_RADARR_QUALITY, GET_RADARR_PATH,
- GET_SONARR_URL, GET_SONARR_API, GET_SONARR_QUALITY, GET_SONARR_PATH,
- GET_OVERSEERR_URL, GET_OVERSEERR_API, GET_STREAMING_SERVICES, GET_COUNTRY_CODE) = range(12)
 
 PROVIDER_MAP = {
     'nfx': 'Netflix', 'amp': 'Amazon Prime Video', 'max': 'Max', 'glb': 'GloboPlay',
@@ -238,12 +236,23 @@ def save_config(new_config=None):
     with open(CONFIG_FILE, 'w') as f: json.dump(CONFIG, f, indent=4)
     load_config()
 
+def check_login(func):
+    @wraps(func)
+    def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
+        if not context.user_data.get('is_logged_in'):
+            effective_message = update.callback_query.message if update.callback_query else update.message
+            effective_message.reply_text(get_text('login_needed'))
+            return
+        return func(update, context, *args, **kwargs)
+    return wrapper
+
 def check_config(func):
     @wraps(func)
     def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
         if not CONFIG:
-            if update.callback_query: update.callback_query.answer(get_text('setup_needed'), show_alert=True)
-            elif update.message: update.message.reply_text(get_text('setup_needed'))
+            lang = context.user_data.get('LANGUAGE', 'en')
+            if update.callback_query: update.callback_query.answer(get_text('setup_needed', lang), show_alert=True)
+            elif update.message: update.message.reply_text(get_text('setup_needed', lang))
             return
         return func(update, context, *args, **kwargs)
     return wrapper
@@ -294,7 +303,66 @@ def add_to_service(service: str, tmdb_id: int, title: str):
     if isinstance(response, list) and 'already been added' in response[0].get('errorMessage', ''): return get_text('add_exists').format(title=title, service=service.title())
     return get_text('add_fail').format(title=title, service=service.title())
 
+def clear_search_data(context: CallbackContext):
+    """Limpa apenas os dados de busca do contexto do usuário, preservando o login."""
+    for key in ['search_results', 'search_index', 'search_media_type', 'search_message_id']:
+        context.user_data.pop(key, None)
+
 # --- Handlers ---
+def start(update: Update, context: CallbackContext): update.message.reply_text(get_text('start_msg', 'en' if not CONFIG else CONFIG.get('LANGUAGE')))
+
+def login_command(update: Update, context: CallbackContext):
+    if context.user_data.get('is_logged_in'):
+        update.message.reply_text(get_text('already_logged_in'))
+        return ConversationHandler.END
+    update.message.reply_text(get_text('login_prompt_user', 'en'))
+    return GET_USERNAME
+
+def get_username_for_login(update: Update, context: CallbackContext):
+    context.user_data['login_user_attempt'] = update.message.text.strip()
+    update.message.reply_text(get_text('login_prompt_pass', 'en'))
+    return GET_PASSWORD
+
+def check_password(update: Update, context: CallbackContext):
+    user = context.user_data.pop('login_user_attempt', None)
+    password = update.message.text.strip()
+    if user == BOT_USER and password == BOT_PASSWORD:
+        context.user_data['is_logged_in'] = True
+        update.message.reply_text(get_text('login_success'))
+    else:
+        update.message.reply_text(get_text('login_fail'))
+    return ConversationHandler.END
+
+@check_login
+def logout(update: Update, context: CallbackContext):
+    context.user_data.clear()
+    update.message.reply_text(get_text('logout_success'))
+
+@check_login
+def help_command(update: Update, context: CallbackContext): update.message.reply_text(get_text('help_text'))
+
+@check_login
+def streaming_command(update: Update, context: CallbackContext):
+    text = get_text('streaming_help') + "\n".join([f"`{code}`: {name}" for code, name in PROVIDER_MAP.items()])
+    update.message.reply_text(text, parse_mode='Markdown')
+
+@check_login
+def language_command(update: Update, context: CallbackContext):
+    keyboard = [[InlineKeyboardButton("🇬🇧 English", callback_data='lang_en'),
+                 InlineKeyboardButton("🇧🇷 Português", callback_data='lang_pt'),
+                 InlineKeyboardButton("🇪🇸 Español", callback_data='lang_es')]]
+    update.message.reply_text(get_text('language_prompt'), reply_markup=InlineKeyboardMarkup(keyboard))
+
+def set_language(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    lang_code = query.data.split('_')[1]
+    CONFIG['LANGUAGE'] = lang_code
+    save_config()
+    lang_name = {"en": "English", "pt": "Português", "es": "Español"}.get(lang_code)
+    query.edit_message_text(text=get_text('language_set', lang=lang_code).format(lang=lang_name))
+
+@check_login
 def setup(update: Update, context: CallbackContext) -> int:
     context.user_data['setup_data'] = {}
     update.message.reply_text(get_text('setup_welcome', 'en'))
@@ -321,7 +389,7 @@ def skip_sonarr(update: Update, context: CallbackContext) -> int:
 
 def get_country_code(update: Update, context: CallbackContext):
     context.user_data['setup_data']['JUSTWATCH_COUNTRY_CODE'] = update.message.text.strip().upper()
-    context.user_data['setup_data']['LANGUAGE'] = 'en'
+    context.user_data['setup_data']['LANGUAGE'] = CONFIG.get('LANGUAGE', 'en')
     update.message.reply_text(get_text('setup_finished', 'en'))
     save_config(new_config=context.user_data.pop('setup_data'))
     update.message.reply_text(get_text('setup_success', 'en'))
@@ -333,38 +401,18 @@ def cancel_setup(update: Update, context: CallbackContext):
     context.user_data.pop('setup_data', None)
     return ConversationHandler.END
 
-def start(update: Update, context: CallbackContext): update.message.reply_text(get_text('start_msg'))
-def help_command(update: Update, context: CallbackContext): update.message.reply_text(get_text('help_text'))
-def streaming_command(update: Update, context: CallbackContext):
-    text = get_text('streaming_help') + "\n".join([f"`{code}`: {name}" for code, name in PROVIDER_MAP.items()])
-    update.message.reply_text(text, parse_mode='Markdown')
-
-def language_command(update: Update, context: CallbackContext):
-    keyboard = [[InlineKeyboardButton("🇬🇧 English", callback_data='lang_en'),
-                 InlineKeyboardButton("🇧🇷 Português", callback_data='lang_pt'),
-                 InlineKeyboardButton("🇪🇸 Español", callback_data='lang_es')]]
-    update.message.reply_text(get_text('language_prompt'), reply_markup=InlineKeyboardMarkup(keyboard))
-
-def set_language(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query.answer()
-    lang_code = query.data.split('_')[1]
-    CONFIG['LANGUAGE'] = lang_code
-    save_config()
-    lang_name = {"en": "English", "pt": "Português", "es": "Español"}.get(lang_code)
-    query.edit_message_text(text=get_text('language_set', lang=lang_code).format(lang=lang_name))
-
 @check_config
+@check_login
 def search_media(update: Update, context: CallbackContext, media_type: str):
     if media_type == 'movie' and not CONFIG.get('RADARR_URL'): return update.message.reply_text(get_text('radarr_not_configured'))
     if media_type == 'show' and not CONFIG.get('SONARR_URL'): return update.message.reply_text(get_text('sonarr_not_configured'))
-
     query_str = ' '.join(context.args)
     if not query_str: return update.message.reply_text(get_text('usage_tip').format(command=media_type))
     msg = update.message.reply_text(get_text('searching').format(query=query_str))
     results = search_radarr(query_str) if media_type == 'movie' else search_sonarr(query_str)
     msg.delete()
     if not results: return update.message.reply_text(get_text('no_results').format(query=query_str))
+    clear_search_data(context)
     context.user_data.update({'search_results': results, 'search_index': 0, 'search_media_type': media_type})
     display_search_result(update, context)
 
@@ -386,21 +434,26 @@ def display_search_result(update: Update, context: CallbackContext):
     add_btn_text = get_text('add_movie_btn' if media_type == 'movie' else 'add_show_btn')
     reply_markup = InlineKeyboardMarkup([[*nav_row], [InlineKeyboardButton(add_btn_text, callback_data=f"add_{media_type}_{tmdb_id}")], [InlineKeyboardButton(get_text('cancel_btn'), callback_data="nav_cancel")]])
     media = InputMediaPhoto(media=poster_url, caption=caption, parse_mode='Markdown')
+    effective_message = query.message if query else update.message
     if query:
         try: query.edit_message_media(media=media, reply_markup=reply_markup)
         except Exception as e:
             if 'Message is not modified' not in str(e): logger.warning(f"Erro ao editar mídia: {e}")
     else:
-        message = (update.message or update.effective_message).reply_photo(photo=poster_url, caption=caption, reply_markup=reply_markup, parse_mode='Markdown')
+        message = effective_message.reply_photo(photo=poster_url, caption=caption, reply_markup=reply_markup, parse_mode='Markdown')
         context.user_data['search_message_id'] = message.message_id
 
 @check_config
+@check_login
 def button_callback(update: Update, context: CallbackContext):
     query = update.callback_query; query.answer()
     action, *payload = query.data.split('_')
     if action == "noop": return
     if action == "nav":
-        if payload[0] == "cancel": query.delete_message(); context.user_data.clear(); return
+        if payload[0] == "cancel": 
+            query.delete_message()
+            clear_search_data(context)
+            return
         context.user_data['search_index'] += 1 if payload[0] == "next" else -1
         display_search_result(update, context); return
     if action == "lang":
@@ -411,7 +464,8 @@ def button_callback(update: Update, context: CallbackContext):
     if media_type == 'movie' and not CONFIG.get('RADARR_URL'): return query.message.reply_text(get_text('radarr_not_configured'))
     if media_type == 'show' and not CONFIG.get('SONARR_URL'): return query.message.reply_text(get_text('sonarr_not_configured'))
 
-    query.delete_message(); context.user_data.clear()
+    query.delete_message()
+    clear_search_data(context)
     status_msg = query.message.reply_text(get_text('status_checking'))
     status_check = get_overseerr_status_by_id(tmdb_id, media_type)
     if (status := status_check.get('status')) in ['available_on_server', 'pending_on_server', 'available_on_streaming', 'error']:
@@ -424,11 +478,23 @@ def button_callback(update: Update, context: CallbackContext):
     status_msg.edit_text(final_message)
 
 def main():
-    if not BOT_TOKEN: return logger.critical("!!! BOT_TOKEN não encontrado.")
+    if not all([BOT_TOKEN, BOT_USER, BOT_PASSWORD]):
+        logger.critical("!!! BOT_TOKEN, BOT_USER, e BOT_PASSWORD são necessários.")
+        return
+
     updater = Updater(BOT_TOKEN)
     dispatcher = updater.dispatcher
     
-    radarr_states = {
+    login_conv = ConversationHandler(
+        entry_points=[CommandHandler('login', login_command)],
+        states={
+            GET_USERNAME: [MessageHandler(Filters.text & ~Filters.command, get_username_for_login)],
+            GET_PASSWORD: [MessageHandler(Filters.text & ~Filters.command, check_password)],
+        },
+        fallbacks=[CommandHandler('start', start)]
+    )
+
+    setup_states = {
         GET_RADARR_URL: (lambda u,c: get_text_and_move(u,c,'RADARR_URL','setup_radarr_api',GET_RADARR_API)),
         GET_RADARR_API: (lambda u,c: get_text_and_move(u,c,'RADARR_API_KEY','setup_radarr_quality',GET_RADARR_QUALITY)),
         GET_RADARR_QUALITY: (lambda u,c: get_text_and_move(u,c,'RADARR_QUALITY_PROFILE_ID','setup_radarr_path',GET_RADARR_PATH)),
@@ -447,18 +513,20 @@ def main():
         GET_COUNTRY_CODE: get_country_code
     }
 
-    conv_handler = ConversationHandler(
+    setup_conv = ConversationHandler(
         entry_points=[CommandHandler('setup', setup)],
         states={
-            **{state: [MessageHandler(Filters.text & ~Filters.command, func), CommandHandler('skip', skip_radarr)] for state, func in radarr_states.items()},
+            **{state: [MessageHandler(Filters.text & ~Filters.command, func), CommandHandler('skip', skip_radarr)] for state, func in setup_states.items()},
             **{state: [MessageHandler(Filters.text & ~Filters.command, func), CommandHandler('skip', skip_sonarr)] for state, func in sonarr_states.items()},
             **{state: [MessageHandler(Filters.text & ~Filters.command, func)] for state, func in overseerr_states.items()},
         },
         fallbacks=[CommandHandler('cancel', cancel_setup)]
     )
     
-    dispatcher.add_handler(conv_handler)
     dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(login_conv)
+    dispatcher.add_handler(CommandHandler("logout", logout))
+    dispatcher.add_handler(setup_conv)
     dispatcher.add_handler(CommandHandler("help", help_command))
     dispatcher.add_handler(CommandHandler("streaming", streaming_command))
     dispatcher.add_handler(CommandHandler("language", language_command))
@@ -474,3 +542,4 @@ def main():
 if __name__ == '__main__':
     try: main()
     except Exception as e: logger.critical(f"O bot encontrou um erro fatal: {e}", exc_info=True); sys.exit(1)
+
