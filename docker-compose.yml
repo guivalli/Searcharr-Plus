@@ -1,0 +1,13 @@
+services:
+  searcharr-bot:
+    build: .
+    container_name: searcharr-bot
+    restart: unless-stopped
+    # O arquivo .env agora só precisa conter o BOT_TOKEN
+    env_file:
+      - .env
+    volumes:
+      # Volume para os logs (mantido)
+      - ./logs:/app/logs
+      # NOVO: Volume para o arquivo de configuração persistente
+      - ./config:/app/config
