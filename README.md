@@ -1,147 +1,119 @@
-Searchrr Plus - Telegram Bot
-Inspired by Searchrr by toddrob99, Searchrr Plus is an enhanced Telegram bot for Radarr and Sonarr with a key feature: Overseerr integration. Before adding media, it checks availability on your subscribed streaming services to prevent unnecessary downloads. It's easily deployed with Docker and features a guided setup.
-
-🌟 What's New
-Optional Plex Integration: The bot can now check your Plex libraries directly! Before checking any other service, it will verify if the movie or show is already available on one of your configured Plex servers, making it the ultimate source of truth for your library.
-
-Friend Mode: Share your bot securely! As an admin, you can now generate unique access codes for friends. Friends can use the bot to check what's available in your library but cannot add new media or change any settings.
+Searcharr Plus - Your Smart Media Manager Bot
+Telegram Bot Inspired by Searchrr by toddrob99, Searchrr Plus is an enhanced Telegram bot for Radarr and Sonarr with a key feature: Before adding media, it checks availability on your subscribed streaming services to prevent unnecessary downloads. It's easily deployed with Docker and features a guided setup. Searcharr Plus allows admins to effortlessly add new movies and shows, while friends can check library status and streaming availability without needing direct access to your services.
 
 ✨ Features
-Radarr & Sonarr Integration: Search and add movies (Radarr) and series (Sonarr).
+Admin & Friend Roles: A secure, two-tier access system. Admins have full control, while friends can be granted read-only access with unique, revokable codes.
 
-TMDB Integration: Checks if media is already available on your server or on your subscribed streaming platforms before adding.
+Intelligent Media Workflow:
 
-*Alternative:
-Overseerr Integration: Checks if media is already available on your server or on your subscribed streaming platforms before adding.*
+Plex Integration: Before anything else, the bot checks if a movie or show is already available in your Plex library.
 
-Interactive Search: Displays search results as a navigable carousel with posters, summaries, and TMDB links.
+Overseerr Integration: If not in Plex, it checks for pending requests in Overseerr to avoid duplicates.
 
-Guided Setup: Easy-to-use /setup command within Telegram to configure all API keys and URLs. No more manual .env file editing for complex fields.
+TMDB Streaming Info: For new media, it checks availability on popular streaming platforms based on your region and subscribed services, helping you save on unnecessary downloads.
 
-Flexible Configuration: Use /skip during setup to run the bot for movies only, series only, or both.
+Interactive Interface: All search commands (/movie, /show, /status) provide a rich, interactive carousel with posters, summaries, and action buttons for easy navigation and selection.
 
-Multi-Language Support: Interface available in English (default), Portuguese, and Spanish. Change it anytime with the /language command.
+Friend Management: Admins can easily generate and manage access codes for friends and family directly from the bot.
 
-Dockerized: Simple, one-command deployment using Docker and Docker Compose, perfect for home servers like a Raspberry Pi.
+Guided & Persistent Setup:
 
-Persistent Configuration: All settings are saved in a JSON file, surviving bot restarts and container recreations.
+An easy-to-use /setup command within Telegram handles all configuration for URLs and API keys.
+
+All settings are saved in a config.json file, surviving bot restarts and container recreations.
+
+Docker-First Deployment: Optimized for easy, one-command deployment using Docker and Docker Compose, perfect for home servers like a Raspberry Pi.
+
+Flexible & Multi-Lingual: Use /skip during setup to configure only the services you need. The interface is available in English, Portuguese, and Spanish and can be changed anytime with /language.
 
 📋 Prerequisites
-Docker: Install Docker
-
-Docker Compose: Install Docker Compose
+Docker & Docker Compose: The recommended way to run the bot.
 
 Telegram Bot Token: Get one from @BotFather on Telegram.
 
-Radarr, Sonarr, Overseerr: You should have running instances of these services, accessible from where you are running the bot.
+TMDB API Key: A free API key from The Movie Database is required for searching and checking streaming providers.
+
+Running Services: Instances of Radarr, Sonarr, Plex, and/or Overseerr that are accessible from where the bot is running.
 
 🚀 Installation & Setup
-Follow these steps to get your bot up and running.
+Clone the Repository
 
-1. Clone the Repository
-Clone this repository to your local machine or server (e.g., your Raspberry Pi).
+git clone https://github.com/your-username/searchrr-plus.git
+cd searchrr-plus
 
-git clone [https://github.com/your-username/searcharr-plus.git](https://github.com/your-username/searcharr-plus.git)
-cd searcharr-plus
-
-2. Create the Environment File
-The bot now requires a Token, a Username, and a Password to start.
-
-Make a copy of the example environment file:
+Create the Environment File
+The bot requires a Token, an Admin Username, and a Password to start. Copy the example file:
 
 cp .env.example .env
 
 Open the .env file (nano .env) and set your credentials:
 
-# Credentials for the bot
+# Credentials for the bot's admin user
 BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u-abcDEF123
 BOT_USER=admin
 BOT_PASSWORD=your_secure_password
 
-3. Build and Run the Docker Container
-With Docker and Docker Compose installed, run the following command from the project's root directory:
+Build and Run with Docker
+From the project's root directory, run:
 
 docker-compose up -d --build
 
-This command will:
-
-Build the Docker image for the bot.
-
-Start the container in detached mode (-d).
-
-Automatically restart the container if it stops or if the server reboots.
-
-To check if the bot started correctly, you can view its logs:
+This will build the Docker image and start the container in detached mode. To check the logs:
 
 docker-compose logs -f
 
-Press Ctrl+C to exit the logs.
+First-Time Setup via Telegram
 
-4. First-Time Setup & Login via Telegram
-Start a Chat: Open Telegram and start a chat with the bot you created.
+Login: Start a chat with your bot and use the /login command with the credentials from your .env file.
 
-Login: Send the /login command and provide the username and password you set in the .env file.
+Configure: Use the /setup command. The bot will guide you through configuring the URLs and API keys for each service.
 
-Initiate Setup: Once logged in, send the /setup command.
+Skip (Optional): You can use /skip at any prompt to bypass the configuration for a specific service (e.g., skip the Radarr section if you only use Sonarr).
 
-Follow the Guide: The bot will ask for each required piece of information.
+🤖 Bot Commands
+Admin Commands
+/login: Authenticate as the admin.
 
-Skip Sections (Optional):
+/setup: Start the guided setup to configure services.
 
-If you only want to use the bot for series, send /skip when it asks for the Radarr URL.
+/movie <name>: Searches Radarr for a movie and provides an option to add it.
 
-If you only want to use the bot for movies, send /skip when it asks for the Sonarr URL.
+/show <name>: Searches Sonarr for a series and provides an option to add it.
 
-Complete: Once done, the bot will save the configuration and be fully operational.
+/status <movie|show> <name>: Searches for media and provides an interface to check if it's in Plex or requested on Overseerr.
 
-🤖 Usage
-/start: Shows a welcome message.
+/friends: Manage friend access (add, remove, list).
 
-/login: Starts the admin login process.
+/language: Change the bot's display language.
 
-/auth <code>: Allows a friend to log in with their unique access code.
+/logout: Log out from the bot.
 
-/logout: Logs out of the current session.
+/help: Shows the list of admin commands.
 
-/help: Displays a list of all available commands.
+Friend Commands
+/auth <code>: Authenticate using a friend code.
 
-/friends: Manage friend access codes (admin only).
+/movie <name>: Searches for a movie and checks its availability on your subscribed streaming services.
 
-/movie <name>: Searches for a movie.
+/show <name>: Searches for a series and checks its availability on your subscribed streaming services.
 
-/show <name>: Searches for a TV series.
+/status <movie|show> <name>: Checks if a media item is already on the admin's Plex or has been requested.
 
-/language: Opens a menu to change the language.
+/logout: End your session.
 
-/streaming: Lists recognized streaming service codes.
-
-/setup: Starts the guided configuration process.
+/help: Shows the list of available commands.
 
 📁 Project Structure
 .
 ├── config/             # (Auto-generated) Stores the persistent config.json file
 ├── logs/               # (Auto-generated) Stores log files
-├── .env                # (You create) Your private Telegram Bot Token
+├── .env                # (You create) Your private Telegram Bot Token and admin credentials
 ├── .env.example        # Example environment file
 ├── bot.py              # The main Python script for the bot
 ├── docker-compose.yml  # Docker Compose file for easy deployment
 ├── Dockerfile          # Instructions to build the Docker image
 └── requirements.txt    # Python dependencies
 
-🤝 Contributing
-Contributions are welcome! If you have ideas for new features, find a bug, or want to improve the code, feel free to:
-
-Fork the repository.
-
-Create a new branch (git checkout -b feature/my-new-feature).
-
-Make your changes.
-
-Commit your changes (git commit -am 'Add some feature').
-
-Push to the branch (git push origin feature/my-new-feature).
-
-Create a new Pull Request.
 ![image](https://github.com/user-attachments/assets/676616a9-a5fc-4585-8f51-639088a37416)
 ![image](https://github.com/user-attachments/assets/3d98a191-4804-47a2-9714-c9b72a03e7b2)
 
