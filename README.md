@@ -9,7 +9,10 @@ Friend Mode: Share your bot securely! As an admin, you can now generate unique a
 ✨ Features
 Radarr & Sonarr Integration: Search and add movies (Radarr) and series (Sonarr).
 
-Overseerr Integration: Checks if media is already available on your server or on your subscribed streaming platforms before adding.
+TMDB Integration: Checks if media is already available on your server or on your subscribed streaming platforms before adding.
+
+*Alternative:
+Overseerr Integration: Checks if media is already available on your server or on your subscribed streaming platforms before adding.*
 
 Interactive Search: Displays search results as a navigable carousel with posters, summaries, and TMDB links.
 
