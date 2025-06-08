@@ -14,6 +14,7 @@ from telegram.ext import (
 from dotenv import load_dotenv
 try:
     from plexapi.server import PlexServer
+    from plexapi.myplex import MyPlexAccount
     from plexapi.exceptions import Unauthorized, NotFound
     PLEX_AVAILABLE = True
 except ImportError:
@@ -42,16 +43,17 @@ CONFIG = {}
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 BOT_USER = os.getenv('BOT_USER')
 BOT_PASSWORD = os.getenv('BOT_PASSWORD')
-SUBSCRIBED_PROVIDER_IDS = set()
 
 # Estados da conversa
 (GET_USERNAME, GET_PASSWORD) = range(2)
 (
     GET_RADARR_URL, GET_RADARR_API, GET_RADARR_QUALITY, GET_RADARR_PATH,
     GET_SONARR_URL, GET_SONARR_API, GET_SONARR_QUALITY, GET_SONARR_PATH,
-    GET_OVERSEERR_URL, GET_OVERSEERR_API,
-    GET_STREAMING_SERVICES, GET_COUNTRY_CODE,
-    ASK_PLEX, GET_PLEX_TOKEN, GET_PLEX_URL, ASK_ANOTHER_PLEX
+    GET_PLEX_TOKEN, GET_PLEX_URL,
+    GET_TMDB_API_KEY,
+    GET_STREAMING_REGION,
+    ASK_OVERSEERR, GET_OVERSEERR_URL, GET_OVERSEERR_API,
+    GET_STREAMING_SERVICES
 ) = range(2, 18)
 
 
@@ -59,7 +61,7 @@ SUBSCRIBED_PROVIDER_IDS = set()
 translations = {
     'en': {
         "start_msg": "Hello! Please /login (admin) or /auth <code> (friend) to use the bot.",
-        "help_admin": "Admin Commands:\n/start - Welcome\n/login - Authenticate\n/logout - End session\n/movie <name> - Search movie\n/show <name> - Search series\n/setup - Guided configuration\n/language - Change language\n/streaming - List codes\n/friends - Manage friend access\n/help - This message",
+        "help_admin": "Admin Commands:\n/start - Welcome\n/login - Authenticate\n/logout - End session\n/movie <name> - Search movie\n/show <name> - Search series\n/setup - Guided configuration\n/language - Change language\n/streaming - List codes\n/friends - Manage friend access\n/debug <movie|show> <name> - Debug media checks\n/help - This message",
         "help_friend": "Available Commands:\n/movie <name> - Check if a movie is available\n/show <name> - Check if a series is available\n/logout - End your session",
         "friends_help": "Manage friend access:\n/friends add <name> - Create an access code for a friend.\n/friends remove <name> - Revoke a friend's access.\n/friends list - List all friends and their codes.",
         "friend_added": "✅ Friend '{name}' added. Their access code is: `{code}`\nPlease share it with them securely.",
@@ -84,6 +86,10 @@ translations = {
         "setup_welcome": "Hello! Let's set up the bot.\nUse /cancel to stop or /skip to skip a section (Radarr/Sonarr).\n\nWhat is the full URL of your Radarr (e.g., http://192.168.1.10:7878)?",
         "setup_skip_radarr": "Skipping Radarr setup.",
         "setup_skip_sonarr": "Skipping Sonarr setup.",
+        "setup_skip_plex": "Skipping Plex setup.",
+        "setup_skip_tmdb": "Skipping TMDB & Region setup.",
+        "setup_skip_overseerr": "Skipping Overseerr setup.",
+        "setup_skip_streaming": "Skipping streaming services.",
         "radarr_not_configured": "Radarr is not configured. Use /setup to add it.",
         "sonarr_not_configured": "Sonarr is not configured. Use /setup to add it.",
         "setup_radarr_api": "Got it. Radarr API Key?",
@@ -93,10 +99,14 @@ translations = {
         "setup_sonarr_api": "Got it. Sonarr API Key?",
         "setup_sonarr_quality": "Sonarr Quality Profile ID?",
         "setup_sonarr_path": "Sonarr Root Folder Path (e.g., /tv/)?",
-        "setup_overseerr_url": "Almost there! Overseerr's full URL?",
+        "setup_plex_token": "Great. Please provide your Plex Authentication Token.",
+        "setup_plex_url": "Please enter the full URL of your main Plex server (e.g., http://192.168.1.12:32400).",
+        "setup_tmdb_api": "Excellent. Now, please provide your TMDB API Key (v3 Auth). This is required for checking streaming providers.",
+        "setup_region": "Great. Now, please enter the two-letter country code for your primary streaming region (e.g., BR for Brazil, US for United States). This will be used to check for streaming availability.",
+        "setup_ask_overseerr": "Plex is configured. Do you also want to add Overseerr to check for pending requests? (yes/no)",
+        "setup_overseerr_url": "Got it. Overseerr's full URL?",
         "setup_overseerr_api": "And the Overseerr API Key?",
         "setup_streaming": "Enter your streaming service codes, comma-separated (e.g., nfx,amp,max). Use /streaming for options.",
-        "setup_country": "Last question: Your country code for JustWatch (e.g., US, BR)?",
         "setup_finished": "Excellent! Saving configuration...",
         "setup_success": "✅ Configuration saved! The bot is ready. Change language with /language.",
         "setup_canceled": "Setup canceled.",
@@ -120,15 +130,13 @@ translations = {
         "add_show_btn": "➕ Add Series",
         "cancel_btn": "❌ Cancel",
         "plex_found": "✅ '{title}' is already available on your Plex server: {server_name}.",
-        "setup_ask_plex": "Do you want to add Plex servers to check your existing library? (yes/no)",
-        "setup_plex_token": "Great. Please provide your Plex Authentication Token. You can find instructions here: https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/",
-        "setup_plex_url": "Please enter the full URL of a Plex server (e.g., http://192.168.1.12:32400).",
-        "setup_plex_another": "Plex server added. Add another one? (yes/no)",
         "plex_not_available": "Plex integration is not available because the `plexapi` library is not installed.",
+        "tmdb_not_configured": "TMDB API Key is not configured. Use /setup.",
+        "checking_tmdb": "Checking TMDB for streaming options...",
     },
     'pt': {
         "start_msg": "Olá! Por favor, use /login (admin) ou /auth <código> (amigo) para usar o bot.",
-        "help_admin": "Comandos de Admin:\n/start - Boas-vindas\n/login - Autenticar\n/logout - Encerrar sessão\n/movie <nome> - Procurar filme\n/show <nome> - Procurar série\n/setup - Configuração guiada\n/language - Mudar idioma\n/streaming - Listar códigos\n/friends - Gerenciar acesso de amigos\n/help - Esta mensagem",
+        "help_admin": "Comandos de Admin:\n/start - Boas-vindas\n/login - Autenticar\n/logout - Encerrar sessão\n/movie <nome> - Procurar filme\n/show <nome> - Procurar série\n/setup - Configuração guiada\n/language - Mudar idioma\n/streaming - Listar códigos\n/friends - Gerenciar acesso de amigos\n/debug <movie|show> <nome> - Depurar checagem de mídia\n/help - Esta mensagem",
         "help_friend": "Comandos Disponíveis:\n/movie <nome> - Verificar se um filme está disponível\n/show <nome> - Verificar se uma série está disponível\n/logout - Encerrar sua sessão",
         "friends_help": "Gerenciar acesso de amigos:\n/friends add <nome> - Cria um código de acesso para um amigo.\n/friends remove <nome> - Revoga o acesso de um amigo.\n/friends list - Lista todos os amigos e seus códigos.",
         "friend_added": "✅ Amigo '{name}' adicionado. O código de acesso dele é: `{code}`\nPor favor, compartilhe com ele de forma segura.",
@@ -153,6 +161,10 @@ translations = {
         "setup_welcome": "Olá! Vamos configurar o bot.\nUse /cancel para parar ou /skip para pular uma seção (Radarr/Sonarr).\n\nQual a URL completa do seu Radarr (ex: http://192.168.1.10:7878)?",
         "setup_skip_radarr": "Pulando configuração do Radarr.",
         "setup_skip_sonarr": "Pulando configuração do Sonarr.",
+        "setup_skip_plex": "Pulando configuração do Plex.",
+        "setup_skip_tmdb": "Pulando configuração do TMDB e Região.",
+        "setup_skip_overseerr": "Pulando configuração do Overseerr.",
+        "setup_skip_streaming": "Pulando configuração dos serviços de streaming.",
         "radarr_not_configured": "O Radarr não está configurado. Use /setup para adicioná-lo.",
         "sonarr_not_configured": "O Sonarr não está configurado. Use /setup para adicioná-lo.",
         "setup_radarr_api": "Ok. Chave de API (API Key) do Radarr?",
@@ -162,10 +174,14 @@ translations = {
         "setup_sonarr_api": "Ok. Chave de API (API Key) do Sonarr?",
         "setup_sonarr_quality": "ID do Perfil de Qualidade do Sonarr?",
         "setup_sonarr_path": "Caminho da Pasta Raiz do Sonarr (ex: /tv/)?",
-        "setup_overseerr_url": "Quase lá! URL completa do seu Overseerr?",
+        "setup_plex_token": "Ótimo. Por favor, forneça seu Token de Autenticação do Plex.",
+        "setup_plex_url": "Por favor, digite a URL completa do seu servidor Plex principal (ex: http://192.168.1.12:32400).",
+        "setup_tmdb_api": "Excelente. Agora, por favor, forneça sua chave de API do TMDB (v3 Auth). Ela é necessária para verificar os provedores de streaming.",
+        "setup_region": "Ótimo. Agora, por favor, insira o código de duas letras do seu país para a região de streaming (ex: BR para Brasil, US para Estados Unidos). Isso será usado para verificar a disponibilidade em streamings.",
+        "setup_ask_overseerr": "Plex configurado. Você também deseja adicionar o Overseerr para verificar pedidos pendentes? (sim/não)",
+        "setup_overseerr_url": "Ok. URL completa do Overseerr?",
         "setup_overseerr_api": "E a Chave de API do Overseerr?",
         "setup_streaming": "Informe os códigos dos seus serviços de streaming, separados por vírgula (ex: nfx,amp,max). Use /streaming para opções.",
-        "setup_country": "Última pergunta: Código do seu país para o JustWatch (ex: BR, US)?",
         "setup_finished": "Excelente! Salvando configuração...",
         "setup_success": "✅ Configuração salva! O bot está pronto. Mude o idioma com /language.",
         "setup_canceled": "Configuração cancelada.",
@@ -189,15 +205,13 @@ translations = {
         "add_show_btn": "➕ Adicionar Série",
         "cancel_btn": "❌ Cancelar",
         "plex_found": "✅ '{title}' já está disponível no seu servidor Plex: {server_name}.",
-        "setup_ask_plex": "Você deseja adicionar servidores Plex para verificar sua biblioteca existente? (sim/não)",
-        "setup_plex_token": "Ótimo. Por favor, forneça seu Token de Autenticação do Plex. Você pode encontrar instruções aqui: https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/",
-        "setup_plex_url": "Por favor, digite a URL completa de um servidor Plex (ex: http://192.168.1.12:32400).",
-        "setup_plex_another": "Servidor Plex adicionado. Adicionar outro? (sim/não)",
         "plex_not_available": "A integração com o Plex não está disponível porque a biblioteca `plexapi` não foi instalada.",
+        "tmdb_not_configured": "A chave de API do TMDB não está configurada. Use /setup.",
+        "checking_tmdb": "Verificando o TMDB para opções de streaming...",
     },
     'es': {
         "start_msg": "¡Hola! Por favor, usa /login (admin) o /auth <código> (amigo) para usar el bot.",
-        "help_admin": "Comandos de Admin:\n/start - Bienvenida\n/login - Autenticarse\n/logout - Cerrar sesión\n/movie <nombre> - Buscar película\n/show <nombre> - Buscar serie\n/setup - Configuración guiada\n/language - Cambiar idioma\n/streaming - Listar códigos\n/friends - Gestionar acceso de amigos\n/help - Este mensaje",
+        "help_admin": "Comandos de Admin:\n/start - Bienvenida\n/login - Autenticarse\n/logout - Cerrar sesión\n/movie <nombre> - Buscar película\n/show <nombre> - Buscar serie\n/setup - Configuración guiada\n/language - Cambiar idioma\n/streaming - Listar códigos\n/friends - Gestionar acceso de amigos\n/debug <movie|show> <nombre> - Depurar comprobaciones de medios\n/help - Este mensaje",
         "help_friend": "Comandos Disponibles:\n/movie <nombre> - Consultar si una película está disponible\n/show <nombre> - Consultar si una serie está disponible\n/logout - Cerrar tu sesión",
         "friends_help": "Gestionar acceso de amigos:\n/friends add <nombre> - Crea un código de acceso para un amigo.\n/friends remove <nombre> - Revoca el acceso de un amigo.\n/friends list - Lista todos los amigos y sus códigos.",
         "friend_added": "✅ Amigo '{name}' añadido. Su código de acceso es: `{code}`\nPor favor, compártelo con él de forma segura.",
@@ -222,6 +236,10 @@ translations = {
         "setup_welcome": "¡Hola! Vamos a configurar el bot.\nUsa /cancel para detenerte o /skip para saltar una sección (Radarr/Sonarr).\n\n¿Cuál es la URL completa de tu Radarr (ej: http://192.168.1.10:7878)?",
         "setup_skip_radarr": "Saltando configuración de Radarr.",
         "setup_skip_sonarr": "Saltando configuración de Sonarr.",
+        "setup_skip_plex": "Saltando configuración de Plex.",
+        "setup_skip_tmdb": "Saltando la configuración de TMDB y Región.",
+        "setup_skip_overseerr": "Saltando la configuración de Overseerr.",
+        "setup_skip_streaming": "Omitiendo la configuración de los servicios de transmisión.",
         "radarr_not_configured": "Radarr no está configurado. Usa /setup para agregarlo.",
         "sonarr_not_configured": "Sonarr no está configurado. Usa /setup para agregarlo.",
         "setup_radarr_api": "Entendido. ¿Clave de API (API Key) de Radarr?",
@@ -231,10 +249,14 @@ translations = {
         "setup_sonarr_api": "Entendido. ¿Clave de API (API Key) de Sonarr?",
         "setup_sonarr_quality": "¿ID del Perfil de Calidad de Sonarr?",
         "setup_sonarr_path": "¿Ruta de la Carpeta Raíz de Sonarr (ej: /tv/)?",
-        "setup_overseerr_url": "¡Casi listo! ¿URL completa de tu Overseerr?",
+        "setup_plex_token": "Genial. Por favor, proporciona tu Token de Autenticación de Plex.",
+        "setup_plex_url": "Por favor, introduce la URL completa de tu servidor Plex principal (ej: http://192.168.1.12:32400).",
+        "setup_tmdb_api": "Excelente. Ahora, por favor, proporciona tu clave de API de TMDB (v3 Auth). Es necesaria para comprobar los proveedores de streaming.",
+        "setup_region": "Estupendo. Ahora, por favor, introduce el código de país de dos letras para tu región principal de streaming (ej: BR para Brasil, US para Estados Unidos). Se utilizará para comprobar la disponibilidad de streaming.",
+        "setup_ask_overseerr": "Plex configurado. ¿También quieres añadir Overseerr para comprobar solicitudes pendientes? (si/no)",
+        "setup_overseerr_url": "OK. ¿URL completa de Overseerr?",
         "setup_overseerr_api": "¿Y la Clave de API de Overseerr?",
         "setup_streaming": "Introduce los códigos de tus servicios de streaming, separados por comas (ej: nfx,amp,max). Usa /streaming para opciones.",
-        "setup_country": "Última pregunta: ¿Código de tu país para JustWatch (ej: ES, MX)?",
         "setup_finished": "¡Excelente! Guardando configuración...",
         "setup_success": "✅ ¡Configuración guardada! El bot está listo. Cambia el idioma con /language.",
         "setup_canceled": "Configuración cancelada.",
@@ -258,43 +280,32 @@ translations = {
         "add_show_btn": "➕ Añadir Serie",
         "cancel_btn": "❌ Cancelar",
         "plex_found": "✅ '{title}' ya está disponible en tu servidor Plex: {server_name}.",
-        "setup_ask_plex": "¿Quieres añadir servidores Plex para comprobar tu biblioteca existente? (si/no)",
-        "setup_plex_token": "Genial. Por favor, proporciona tu Token de Autenticación de Plex. Puedes encontrar instrucciones aquí: https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/",
-        "setup_plex_url": "Por favor, introduce la URL completa de un servidor Plex (ej: http://192.168.1.12:32400).",
-        "setup_plex_another": "Servidor Plex añadido. ¿Añadir otro? (si/no)",
         "plex_not_available": "La integración con Plex no está disponible porque la biblioteca `plexapi` no está instalada.",
+        "tmdb_not_configured": "La clave API de TMDB no está configurada. Utilice /setup.",
+        "checking_tmdb": "Comprobando TMDB para opciones de streaming...",
     }
 }
 
 def get_text(key, lang=None):
     if lang is None: lang = CONFIG.get('LANGUAGE', 'en')
-    # Fallback to English if the language or key is not found
     return translations.get(lang, translations['en']).get(key, translations['en'].get(key, f"_{key}_"))
 
 PROVIDER_MAP = {
     'nfx': 'Netflix', 'amp': 'Amazon Prime Video', 'max': 'Max', 'glb': 'GloboPlay',
     'pmp': 'Paramount+', 'dnp': 'Disney+', 'apv': 'Apple TV+', 'sp': 'Star+'
 }
-PROVIDER_IDS = {
-    'nfx': 8, 'amp': 119, 'max': 384, 'glb': 307, 'pmp': 531,
-    'dnp': 337, 'apv': 350, 'sp': 619, 'max_new': 1899
-}
 
 def load_config():
-    global CONFIG, SUBSCRIBED_PROVIDER_IDS
+    global CONFIG
     try:
         with open(CONFIG_FILE, 'r') as f: CONFIG = json.load(f)
-        if 'LANGUAGE' not in CONFIG: CONFIG['LANGUAGE'] = 'en'
-        if 'FRIENDS' not in CONFIG: CONFIG['FRIENDS'] = {}
-        if 'PLEX_SERVERS' not in CONFIG: CONFIG['PLEX_SERVERS'] = []
-        subscribed_codes = CONFIG.get('SUBSCRIBED_SERVICES_CODES', [])
-        SUBSCRIBED_PROVIDER_IDS = {PROVIDER_IDS[code] for code in subscribed_codes if code in PROVIDER_IDS}
-        if 'max' in subscribed_codes: SUBSCRIBED_PROVIDER_IDS.add(1899)
+        for key, default in [('LANGUAGE', 'en'), ('FRIENDS', {}), ('PLEX_URL', ''), ('OVERSEERR_URL', ''), ('TMDB_API_KEY', ''), ('STREAMING_REGION', 'BR')]:
+            if key not in CONFIG: CONFIG[key] = default
         logger.info("Configuração carregada de config.json")
         return True
     except (FileNotFoundError, json.JSONDecodeError):
         logger.warning("config.json não encontrado ou inválido. Use /setup para configurar.")
-        CONFIG = {}; SUBSCRIBED_PROVIDER_IDS = set()
+        CONFIG = {}
         return False
 
 def save_config(new_config=None):
@@ -317,7 +328,8 @@ def check_login(func):
 def check_config(func):
     @wraps(func)
     def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
-        if not CONFIG.get('OVERSEERR_URL'): # Check for a key that is always present after setup
+        is_configured = any(CONFIG.get(key) for key in ['RADARR_URL', 'SONARR_URL', 'PLEX_URL', 'OVERSEERR_URL'])
+        if not is_configured:
             lang = context.user_data.get('LANGUAGE', 'en')
             if update.callback_query: update.callback_query.answer(get_text('setup_needed', lang), show_alert=True)
             elif update.message: update.message.reply_text(get_text('setup_needed', lang))
@@ -336,7 +348,7 @@ def check_admin(func):
 
 def api_request(method, url, **kwargs):
     try:
-        response = requests.request(method, url, timeout=10, **kwargs)
+        response = requests.request(method, url, timeout=15, **kwargs)
         response.raise_for_status()
         if response.content and 'application/json' in response.headers.get('Content-Type', ''): return response.json()
         return response.text
@@ -351,57 +363,115 @@ def search_sonarr(query: str):
     if not CONFIG.get('SONARR_URL'): return None
     return api_request('get', f"{CONFIG['SONARR_URL']}/api/v3/series/lookup", headers={'X-Api-Key': CONFIG['SONARR_API_KEY']}, params={'term': query}) or []
 
-def check_plex_availability(title_to_check):
-    if not PLEX_AVAILABLE or not CONFIG.get('PLEX_SERVERS'):
+def check_plex_library(title_to_check):
+    if not PLEX_AVAILABLE or not CONFIG.get('PLEX_URL'): return None
+    try:
+        plex = PlexServer(CONFIG['PLEX_URL'], CONFIG['PLEX_TOKEN'])
+        server_name = plex.friendlyName
+        logger.info(f"Checando biblioteca do Plex '{server_name}' por título: {title_to_check}")
+        results = plex.library.search(title=title_to_check, limit=5)
+        for item in results:
+            if title_to_check.lower() in item.title.lower():
+                item.reload()
+                if hasattr(item, 'media') and item.media:
+                    logger.info(f"Encontrado '{item.title}' com ficheiros no servidor Plex '{server_name}'.")
+                    return {'status': 'available_on_plex', 'message': get_text('plex_found').format(title=item.title, server_name=server_name)}
+        raise NotFound
+    except NotFound:
+        logger.info(f"'{title_to_check}' não encontrado na biblioteca local do Plex server.")
         return None
-    plex_servers = CONFIG.get('PLEX_SERVERS', [])
-    plex_token = CONFIG.get('PLEX_TOKEN', '')
-    for server_info in plex_servers:
-        try:
-            plex = PlexServer(server_info['url'], plex_token)
-            server_name = plex.friendlyName
-            logger.info(f"Checando Plex Server '{server_name}' por título: {title_to_check}")
-            plex.library.search(title=title_to_check)
-            return {'status': 'available_on_plex', 'message': get_text('plex_found').format(title=title_to_check, server_name=server_name)}
-        except NotFound:
-            logger.info(f"'{title_to_check}' não encontrado no Plex server '{server_name}'.")
-            continue
-        except Unauthorized:
-            logger.error(f"Token do Plex inválido para o servidor {server_info['url']}.")
-            continue
-        except Exception as e:
-            logger.error(f"Não foi possível conectar ao servidor Plex {server_info['url']}: {e}")
-            continue
+    except Exception as e:
+        logger.error(f"Erro ao checar biblioteca do Plex: {e}"); return None
+
+def check_tmdb_providers(tmdb_id, media_type, title):
+    """Verifica provedores de streaming usando a API do TMDB com foco na região do usuário."""
+    if not CONFIG.get('TMDB_API_KEY'):
+        return {'status': 'error', 'message': get_text('tmdb_not_configured')}
+    
+    url = f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/watch/providers?api_key={CONFIG['TMDB_API_KEY']}"
+    data = api_request('get', url)
+    if not data or 'results' not in data:
+        return None
+
+    results = data['results']
+    region = CONFIG.get('STREAMING_REGION', 'BR').upper()
+    
+    if region in results and 'flatrate' in results[region]:
+        provider_names = [p['provider_name'] for p in results[region]['flatrate']]
+        logger.info(f"Provedores de streaming encontrados no TMDB para a região {region}: {provider_names}")
+        
+        subscribed_services = {s.lower() for s in CONFIG.get('SUBSCRIBED_SERVICES_CODES', [])}
+        KEYWORD_MAP = {
+            'nfx': ('netflix',), 'amp': ('amazon', 'prime video'), 'max': ('max', 'hbo'),
+            'glb': ('globo',), 'pmp': ('paramount',), 'dnp': ('disney',),
+            'apv': ('apple',), 'sp': ('star',)
+        }
+
+        available_on = []
+        for provider_name in provider_names:
+            provider_name_lower = provider_name.lower()
+            for code in subscribed_services:
+                if any(keyword in provider_name_lower for keyword in KEYWORD_MAP.get(code, ())):
+                    available_on.append(provider_name)
+                    break
+        
+        if available_on:
+            unique_services = sorted(list(set(available_on)))
+            logger.info(f"Match encontrado no TMDB na região {region}! Mídia disponível em: {unique_services}")
+            message = get_text('status_streaming').format(title=title, services=', '.join(unique_services))
+            return {'status': 'available_on_streaming', 'message': message}
+
+    logger.info(f"Nenhuma correspondência encontrada na região configurada ({region}) para '{title}'.")
     return None
 
-def get_overseerr_status_by_id(tmdb_id: int, media_type: str):
-    media_data = api_request('get', f"{CONFIG['OVERSEERR_URL']}/api/v1/{'tv' if media_type == 'show' else 'movie'}/{tmdb_id}", headers={'X-Api-Key': CONFIG['OVERSEERR_API_KEY']})
-    if media_data is None: return {'status': 'not_available', 'title': f'ID {tmdb_id}'}
+def get_overseerr_status(tmdb_id, media_type):
+    if not CONFIG.get('OVERSEERR_URL'): return None
+    url = f"{CONFIG.get('OVERSEERR_URL')}/api/v1/{'tv' if media_type == 'show' else 'movie'}/{tmdb_id}"
+    media_data = api_request('get', url, headers={'X-Api-Key': CONFIG.get('OVERSEERR_API_KEY')})
+    if not media_data: return None
     title = media_data.get('title', media_data.get('name', ''))
-    if media_info := media_data.get('mediaInfo'):
-        if media_info.get('status') in [4, 5]: return {'status': 'available_on_server', 'message': get_text('status_available').format(title=title)}
-        if media_info.get('status') in [1, 2, 3]: return {'status': 'pending_on_server', 'message': get_text('status_pending').format(title=title)}
-    if watch_providers := media_data.get('watchProviders'):
-        providers = next((c.get('flatrate', []) for c in watch_providers if c.get('iso_3166_1') == CONFIG['JUSTWATCH_COUNTRY_CODE']), []) if isinstance(watch_providers, list) else watch_providers.get(CONFIG['JUSTWATCH_COUNTRY_CODE'], {}).get('flatrate', [])
-        if services := {p.get('provider_name', p.get('name')) for p in providers if p.get('provider_id', p.get('id')) in SUBSCRIBED_PROVIDER_IDS}:
-            return {'status': 'available_on_streaming', 'message': get_text('status_streaming').format(title=title, services=', '.join(sorted(services)))}
-    return {'status': 'not_available', 'title': title}
+    if (media_info := media_data.get('mediaInfo')) and (status_code := media_info.get('status')) in [1, 2, 3]:
+        return {'status': 'pending_on_server', 'message': get_text('status_pending').format(title=title)}
+    return None
 
-def add_to_service(service: str, tmdb_id: int, title: str):
+def add_to_service(service, tmdb_id, title):
     is_radarr = service == 'radarr'
     conf = {k.replace(f'{service.upper()}_', ''): v for k, v in CONFIG.items() if k.startswith(service.upper())}
     headers = {'X-Api-Key': conf['API_KEY']}
     lookup_endpoint = 'movie/lookup/tmdb' if is_radarr else 'series/lookup'
-    media_data = api_request('get', f"{conf['URL']}/api/v3/{lookup_endpoint}", headers=headers, params={'tmdbId': tmdb_id} if is_radarr else {'term': f'tmdb:{tmdb_id}'})
-    if not media_data: return get_text('add_lookup_fail').format(title=title, service=service.title())
-    media_data = media_data if is_radarr else media_data[0]
+    params = {'tmdbId': tmdb_id} if is_radarr else {'term': f'tmdb:{tmdb_id}'}
+    media_data_list = api_request('get', f"{conf['URL']}/api/v3/{lookup_endpoint}", headers=headers, params=params)
+
+    if not media_data_list:
+        return get_text('add_lookup_fail').format(title=title, service=service.title())
+
+    media_data = media_data_list if is_radarr else media_data_list[0]
     title = media_data.get('title', title)
-    media_data.update({'qualityProfileId': int(conf['QUALITY_PROFILE_ID']), 'rootFolderPath': conf['ROOT_FOLDER_PATH'], 'monitored': True,
-                       'addOptions': {'searchForMovie': True} if is_radarr else {'searchForMissingEpisodes': True, 'monitor': 'all'}})
-    response = api_request('post', f"{conf['URL']}/api/v3/{'movie' if is_radarr else 'series'}", headers=headers, json=media_data)
-    if isinstance(response, dict) and 'title' in response: return get_text('add_success').format(title=title, service=service.title())
-    if isinstance(response, list) and 'already been added' in response[0].get('errorMessage', ''): return get_text('add_exists').format(title=title, service=service.title())
+
+    if is_radarr:
+        media_data.update({
+            'qualityProfileId': int(conf['QUALITY_PROFILE_ID']), 'rootFolderPath': conf['ROOT_FOLDER_PATH'],
+            'monitored': True, 'addOptions': {'searchForMovie': True}
+        })
+        endpoint = 'movie'
+    else:
+        media_data.update({
+            'tvdbId': media_data.get('tvdbId'), 'qualityProfileId': int(conf['QUALITY_PROFILE_ID']),
+            'rootFolderPath': conf['ROOT_FOLDER_PATH'], 'monitored': True,
+            'addOptions': {'searchForMissingEpisodes': True, 'monitor': 'all'}
+        })
+        endpoint = 'series'
+
+    response = api_request('post', f"{conf['URL']}/api/v3/{endpoint}", headers=headers, json=media_data)
+    
+    if isinstance(response, dict) and 'title' in response:
+        return get_text('add_success').format(title=title, service=service.title())
+    if isinstance(response, list) and response and 'errorMessage' in response[0] and 'already been added' in response[0]['errorMessage']:
+        return get_text('add_exists').format(title=title, service=service.title())
+        
+    logger.error(f"Falha ao adicionar '{title}' ao {service.title()}. Resposta: {response}")
     return get_text('add_fail').format(title=title, service=service.title())
+
 
 def clear_search_data(context: CallbackContext):
     for key in ['search_results', 'search_index', 'search_media_type', 'search_message_id']:
@@ -426,8 +496,7 @@ def check_password(update: Update, context: CallbackContext):
     user = context.user_data.pop('login_user_attempt', None)
     password = update.message.text.strip()
     if user == BOT_USER and password == BOT_PASSWORD:
-        context.user_data['is_logged_in'] = True
-        context.user_data['role'] = 'admin'
+        context.user_data.update({'is_logged_in': True, 'role': 'admin'})
         update.message.reply_text(get_text('login_success'))
     else:
         update.message.reply_text(get_text('login_fail'))
@@ -436,10 +505,8 @@ def check_password(update: Update, context: CallbackContext):
 def auth_command(update: Update, context: CallbackContext):
     if not context.args: return update.message.reply_text(get_text('auth_prompt'))
     access_code = context.args[0]
-    friends = CONFIG.get('FRIENDS', {})
-    if any(access_code == data['code'] for data in friends.values()):
-        context.user_data['is_logged_in'] = True
-        context.user_data['role'] = 'friend'
+    if any(access_code == data['code'] for data in CONFIG.get('FRIENDS', {}).values()):
+        context.user_data.update({'is_logged_in': True, 'role': 'friend'})
         update.message.reply_text(get_text('auth_success'))
     else:
         update.message.reply_text(get_text('auth_fail'))
@@ -477,22 +544,19 @@ def set_language(update: Update, context: CallbackContext):
 @check_login
 @check_admin
 def friends_command(update: Update, context: CallbackContext):
-    if not context.args or context.args[0] not in ['add', 'remove', 'list']:
+    args = context.args
+    if not args or args[0] not in ['add', 'remove', 'list']:
         return update.message.reply_text(get_text('friends_help'))
-    command = context.args[0]
-    if command == 'add':
-        if len(context.args) < 2: return update.message.reply_text("Usage: /friends add <name>")
-        name = context.args[1]
+    command, *params = args
+    if command == 'add' and params:
+        name = params[0]
         code = str(uuid.uuid4())[:8]
-        if 'FRIENDS' not in CONFIG: CONFIG['FRIENDS'] = {}
-        CONFIG['FRIENDS'][name] = {'code': code}
+        CONFIG.setdefault('FRIENDS', {})[name] = {'code': code}
         save_config()
         update.message.reply_text(get_text('friend_added').format(name=name, code=code), parse_mode='Markdown')
-    elif command == 'remove':
-        if len(context.args) < 2: return update.message.reply_text("Usage: /friends remove <name>")
-        name = context.args[1]
-        if name in CONFIG.get('FRIENDS', {}):
-            del CONFIG['FRIENDS'][name]
+    elif command == 'remove' and params:
+        name = params[0]
+        if CONFIG.get('FRIENDS', {}).pop(name, None):
             save_config()
             update.message.reply_text(get_text('friend_removed').format(name=name))
         else:
@@ -515,61 +579,76 @@ def get_text_and_move(update, context, key, prompt_key, next_state):
     update.message.reply_text(get_text(prompt_key, 'en'))
     return next_state
 
-def skip_radarr(update: Update, context: CallbackContext) -> int:
+def skip_radarr(update: Update, context: CallbackContext):
     update.message.reply_text(get_text('setup_skip_radarr', 'en'))
     for key in ['RADARR_URL', 'RADARR_API_KEY', 'RADARR_QUALITY_PROFILE_ID', 'RADARR_ROOT_FOLDER_PATH']:
         context.user_data['setup_data'][key] = ""
     update.message.reply_text(get_text('setup_sonarr_url', 'en'))
     return GET_SONARR_URL
 
-def skip_sonarr(update: Update, context: CallbackContext) -> int:
+def skip_sonarr(update: Update, context: CallbackContext):
     update.message.reply_text(get_text('setup_skip_sonarr', 'en'))
     for key in ['SONARR_URL', 'SONARR_API_KEY', 'SONARR_QUALITY_PROFILE_ID', 'SONARR_ROOT_FOLDER_PATH']:
         context.user_data['setup_data'][key] = ""
-    update.message.reply_text(get_text('setup_overseerr_url', 'en'))
-    return GET_OVERSEERR_URL
+    update.message.reply_text(get_text('setup_plex_token' if PLEX_AVAILABLE else 'setup_tmdb_api', 'en'))
+    return GET_PLEX_TOKEN if PLEX_AVAILABLE else GET_TMDB_API_KEY
 
-def get_country_code(update: Update, context: CallbackContext):
-    context.user_data['setup_data']['JUSTWATCH_COUNTRY_CODE'] = update.message.text.strip().upper()
-    if PLEX_AVAILABLE:
-        update.message.reply_text(get_text('setup_ask_plex', 'en'))
-        return ASK_PLEX
-    else:
-        update.message.reply_text(get_text('setup_finished', 'en'))
-        save_config(new_config=context.user_data.pop('setup_data'))
-        update.message.reply_text(get_text('setup_success', 'en'))
-        return ConversationHandler.END
+def skip_plex(update: Update, context: CallbackContext):
+    update.message.reply_text(get_text('setup_skip_plex', 'en'))
+    for key in ['PLEX_TOKEN', 'PLEX_URL']:
+        context.user_data['setup_data'][key] = ""
+    update.message.reply_text(get_text('setup_tmdb_api', 'en'))
+    return GET_TMDB_API_KEY
 
-def ask_plex(update: Update, context: CallbackContext):
-    if update.message.text.lower() in ['yes', 'y', 'sim', 's']:
-        update.message.reply_text(get_text('setup_plex_token', 'en'))
-        return GET_PLEX_TOKEN
-    else:
-        update.message.reply_text(get_text('setup_finished', 'en'))
-        save_config(new_config=context.user_data.pop('setup_data'))
-        update.message.reply_text(get_text('setup_success', 'en'))
-        return ConversationHandler.END
+def skip_tmdb(update: Update, context: CallbackContext):
+    update.message.reply_text(get_text('setup_skip_tmdb', 'en'))
+    for key in ['TMDB_API_KEY', 'STREAMING_REGION']:
+        context.user_data['setup_data'][key] = ""
+    update.message.reply_text(get_text('setup_ask_overseerr', 'en'))
+    return ASK_OVERSEERR
+
+def skip_overseerr(update: Update, context: CallbackContext):
+    update.message.reply_text(get_text('setup_skip_overseerr', 'en'))
+    context.user_data['setup_data']['OVERSEERR_URL'] = ""
+    context.user_data['setup_data']['OVERSEERR_API_KEY'] = ""
+    update.message.reply_text(get_text('setup_streaming', 'en'))
+    return GET_STREAMING_SERVICES
+
+def skip_streaming(update: Update, context: CallbackContext):
+    update.message.reply_text(get_text('setup_skip_streaming', 'en'))
+    context.user_data['setup_data']['SUBSCRIBED_SERVICES_CODES'] = []
+    return finish_setup(update, context)
 
 def get_plex_token(update: Update, context: CallbackContext):
-    context.user_data['setup_data']['PLEX_TOKEN'] = update.message.text.strip()
-    context.user_data['setup_data']['PLEX_SERVERS'] = []
-    update.message.reply_text(get_text('setup_plex_url', 'en'))
-    return GET_PLEX_URL
+    return get_text_and_move(update, context, 'PLEX_TOKEN', 'setup_plex_url', GET_PLEX_URL)
 
 def get_plex_url(update: Update, context: CallbackContext):
-    context.user_data['setup_data']['PLEX_SERVERS'].append({'url': update.message.text.strip()})
-    update.message.reply_text(get_text('setup_plex_another', 'en'))
-    return ASK_ANOTHER_PLEX
+    return get_text_and_move(update, context, 'PLEX_URL', 'setup_tmdb_api', GET_TMDB_API_KEY)
+    
+def get_tmdb_api_key(update: Update, context: CallbackContext):
+    return get_text_and_move(update, context, 'TMDB_API_KEY', 'setup_region', GET_STREAMING_REGION)
 
-def ask_another_plex(update: Update, context: CallbackContext):
+def get_streaming_region(update: Update, context: CallbackContext):
+    return get_text_and_move(update, context, 'STREAMING_REGION', 'setup_ask_overseerr', ASK_OVERSEERR)
+
+def ask_overseerr(update: Update, context: CallbackContext):
     if update.message.text.lower() in ['yes', 'y', 'sim', 's']:
-        update.message.reply_text(get_text('setup_plex_url', 'en'))
-        return GET_PLEX_URL
+        update.message.reply_text(get_text('setup_overseerr_url', 'en'))
+        return GET_OVERSEERR_URL
     else:
-        update.message.reply_text(get_text('setup_finished', 'en'))
-        save_config(new_config=context.user_data.pop('setup_data'))
-        update.message.reply_text(get_text('setup_success', 'en'))
-        return ConversationHandler.END
+        # This handles the 'no' case
+        return skip_overseerr(update, context)
+
+def get_streaming_services(update: Update, context: CallbackContext):
+    context.user_data['setup_data']['SUBSCRIBED_SERVICES_CODES'] = [c.strip().lower() for c in update.message.text.split(',')]
+    return finish_setup(update, context)
+
+def finish_setup(update, context):
+    update.message.reply_text(get_text('setup_finished', 'en'))
+    context.user_data['setup_data']['LANGUAGE'] = CONFIG.get('LANGUAGE', 'en')
+    save_config(new_config=context.user_data.pop('setup_data'))
+    update.message.reply_text(get_text('setup_success', 'en'))
+    return ConversationHandler.END
 
 def cancel_setup(update: Update, context: CallbackContext):
     lang = context.user_data.get('setup_data', {}).get('LANGUAGE', CONFIG.get('LANGUAGE', 'en'))
@@ -629,47 +708,95 @@ def button_callback(update: Update, context: CallbackContext):
     query = update.callback_query; query.answer()
     action, *payload = query.data.split('_')
     if action == "noop": return
+    if action == "lang": return set_language(update, context)
     if action == "nav":
         if payload[0] == "cancel": 
-            query.delete_message()
-            clear_search_data(context)
-            return
+            query.delete_message(); clear_search_data(context); return
         context.user_data['search_index'] += 1 if payload[0] == "next" else -1
-        display_search_result(update, context); return
-    if action == "lang":
-        set_language(update, context); return
+        return display_search_result(update, context)
     
-    media_type, tmdb_id = payload[0], int(payload[1])
-
-    if media_type == 'movie' and not CONFIG.get('RADARR_URL'): return query.message.reply_text(get_text('radarr_not_configured'))
-    if media_type == 'show' and not CONFIG.get('SONARR_URL'): return query.message.reply_text(get_text('sonarr_not_configured'))
+    media_type, tmdb_id_str = payload[0], payload[1]
+    tmdb_id = int(tmdb_id_str)
 
     query.delete_message()
+    
+    results = context.user_data.get('search_results', [])
+    search_index = context.user_data.get('search_index', 0)
+    current_item = results[search_index] if search_index < len(results) else None
+    title_to_check = current_item.get('title') if current_item else 'this media'
+    year_to_check = current_item.get('year') if current_item else None
+    
     clear_search_data(context)
+    
     status_msg = query.message.reply_text(get_text('status_checking'))
     
-    # Plex Check First
-    results = context.user_data.get('search_results', [])
-    current_item = next((item for item in results if item.get('tmdbId') == tmdb_id), None)
-    title_to_check = current_item.get('title') if current_item else 'this media'
+    if plex_lib_check := check_plex_library(title_to_check):
+        return status_msg.edit_text(plex_lib_check['message'])
+    
+    status_msg.edit_text(get_text('checking_tmdb'))
+    tmdb_check = check_tmdb_providers(tmdb_id, media_type, title_to_check)
+    if tmdb_check:
+        return status_msg.edit_text(tmdb_check['message'])
 
-    plex_check = check_plex_availability(title_to_check)
-    if plex_check:
-        status_msg.edit_text(plex_check['message'])
-        return
-        
-    status_check = get_overseerr_status_by_id(tmdb_id, media_type)
-    if (status := status_check.get('status')) in ['available_on_server', 'pending_on_server', 'available_on_streaming', 'error']:
-        final_message = status_check.get('message')
-    elif status == 'not_available':
-        title = status_check.get('title', 'mídia')
-        if context.user_data.get('role') == 'admin':
-            status_msg.edit_text(get_text('status_adding').format(title=title))
-            final_message = add_to_service('radarr' if media_type == 'movie' else 'sonarr', tmdb_id, title)
-        else:
-            final_message = get_text('not_available_friend').format(title=title)
-    else: final_message = get_text('unexpected_error')
+    if overseerr_check := get_overseerr_status(tmdb_id, media_type):
+        return status_msg.edit_text(overseerr_check['message'])
+
+    if context.user_data.get('role') == 'admin':
+        status_msg.edit_text(get_text('status_adding').format(title=title_to_check))
+        final_message = add_to_service('radarr' if media_type == 'movie' else 'sonarr', tmdb_id, title_to_check)
+    else: 
+        final_message = get_text('not_available_friend').format(title=title_to_check)
+    
     status_msg.edit_text(final_message)
+
+@check_login
+@check_admin
+def debug_media(update: Update, context: CallbackContext):
+    """Fornece uma depuração passo a passo do processo de verificação de mídia."""
+    if not context.args or len(context.args) < 2 or context.args[0] not in ['movie', 'show']:
+        update.message.reply_text("Uso: /debug <movie|show> <query>")
+        return
+    
+    media_type = context.args[0]
+    query_str = ' '.join(context.args[1:])
+    chat = update.effective_chat
+    
+    def report(message):
+        context.bot.send_message(chat.id, f"🐞 {message}")
+
+    report(f"Iniciando depuração para {media_type} '{query_str}'...")
+
+    report(f"Procurando {media_type} no {'Radarr' if media_type == 'movie' else 'Sonarr'}...")
+    results = search_radarr(query_str) if media_type == 'movie' else search_sonarr(query_str)
+    if not results:
+        report("Nenhum resultado encontrado no Radarr/Sonarr. Abortando.")
+        return
+    
+    item = results[0] 
+    title_to_check = item.get('title')
+    year_to_check = item.get('year')
+    tmdb_id = item.get('tmdbId')
+    report(f"Encontrado '{title_to_check}' ({year_to_check}) com TMDB ID {tmdb_id}.")
+
+    report("---")
+    report("Verificando a biblioteca local do Plex...")
+    if (plex_lib_check := check_plex_library(title_to_check)):
+        report(f"SUCESSO: Encontrado na biblioteca local do Plex. Mensagem: {plex_lib_check['message']}")
+        return report("Depuração finalizada.")
+    report("Não encontrado na biblioteca local do Plex.")
+
+    report("---")
+    report("Verificando provedores do TMDB...")
+    if (tmdb_check := check_tmdb_providers(tmdb_id, media_type, title_to_check)):
+         if tmdb_check.get('status') == 'error':
+             report(f"ERRO: {tmdb_check['message']}")
+         else:
+             report(f"SUCESSO: Encontrado via TMDB. Mensagem: {tmdb_check['message']}")
+         return report("Depuração finalizada.")
+    report("Nenhuma correspondência encontrada via TMDB.")
+    
+    report("---")
+    report("Depuração finalizada.")
 
 def main():
     if not all([BOT_TOKEN, BOT_USER, BOT_PASSWORD]):
@@ -687,42 +814,54 @@ def main():
         },
         fallbacks=[CommandHandler('start', start)]
     )
-
-    setup_states = {
+    
+    setup_states_map = {
         GET_RADARR_URL: (lambda u,c: get_text_and_move(u,c,'RADARR_URL','setup_radarr_api',GET_RADARR_API)),
         GET_RADARR_API: (lambda u,c: get_text_and_move(u,c,'RADARR_API_KEY','setup_radarr_quality',GET_RADARR_QUALITY)),
         GET_RADARR_QUALITY: (lambda u,c: get_text_and_move(u,c,'RADARR_QUALITY_PROFILE_ID','setup_radarr_path',GET_RADARR_PATH)),
         GET_RADARR_PATH: (lambda u,c: get_text_and_move(u,c,'RADARR_ROOT_FOLDER_PATH','setup_sonarr_url',GET_SONARR_URL)),
-    }
-    sonarr_states = {
         GET_SONARR_URL: (lambda u,c: get_text_and_move(u,c,'SONARR_URL','setup_sonarr_api',GET_SONARR_API)),
         GET_SONARR_API: (lambda u,c: get_text_and_move(u,c,'SONARR_API_KEY','setup_sonarr_quality',GET_SONARR_QUALITY)),
         GET_SONARR_QUALITY: (lambda u,c: get_text_and_move(u,c,'SONARR_QUALITY_PROFILE_ID','setup_sonarr_path',GET_SONARR_PATH)),
-        GET_SONARR_PATH: (lambda u,c: get_text_and_move(u,c,'SONARR_ROOT_FOLDER_PATH','setup_overseerr_url',GET_OVERSEERR_URL)),
-    }
-    overseerr_states = {
+        GET_SONARR_PATH: (lambda u,c: get_text_and_move(u,c,'SONARR_ROOT_FOLDER_PATH','setup_plex_token' if PLEX_AVAILABLE else 'setup_tmdb_api', GET_PLEX_TOKEN if PLEX_AVAILABLE else GET_TMDB_API_KEY)),
+        GET_PLEX_TOKEN: get_plex_token,
+        GET_PLEX_URL: get_plex_url,
+        GET_TMDB_API_KEY: get_tmdb_api_key,
+        GET_STREAMING_REGION: get_streaming_region,
+        ASK_OVERSEERR: ask_overseerr,
         GET_OVERSEERR_URL: (lambda u,c: get_text_and_move(u,c,'OVERSEERR_URL','setup_overseerr_api',GET_OVERSEERR_API)),
         GET_OVERSEERR_API: (lambda u,c: get_text_and_move(u,c,'OVERSEERR_API_KEY','setup_streaming',GET_STREAMING_SERVICES)),
-        GET_STREAMING_SERVICES: (lambda u,c: get_text_and_move(u,c,'SUBSCRIBED_SERVICES_CODES', 'setup_country', GET_COUNTRY_CODE)),
-        GET_COUNTRY_CODE: get_country_code
-    }
-    plex_states = {
-        ASK_PLEX: [MessageHandler(Filters.text & ~Filters.command, ask_plex)],
-        GET_PLEX_TOKEN: [MessageHandler(Filters.text & ~Filters.command, get_plex_token)],
-        GET_PLEX_URL: [MessageHandler(Filters.text & ~Filters.command, get_plex_url)],
-        ASK_ANOTHER_PLEX: [MessageHandler(Filters.text & ~Filters.command, ask_another_plex)],
+        GET_STREAMING_SERVICES: get_streaming_services,
     }
 
     setup_conv = ConversationHandler(
         entry_points=[CommandHandler('setup', setup)],
         states={
-            **{state: [MessageHandler(Filters.text & ~Filters.command, func), CommandHandler('skip', skip_radarr)] for state, func in setup_states.items()},
-            **{state: [MessageHandler(Filters.text & ~Filters.command, func), CommandHandler('skip', skip_sonarr)] for state, func in sonarr_states.items()},
-            **{state: [MessageHandler(Filters.text & ~Filters.command, func)] for state, func in overseerr_states.items()},
-            **plex_states,
+            state: [MessageHandler(Filters.text & ~Filters.command, func)] for state, func in setup_states_map.items()
         },
         fallbacks=[CommandHandler('cancel', cancel_setup)]
     )
+    # Adicionar handlers de /skip manualmente para cada seção
+    radarr_range = range(GET_RADARR_URL, GET_SONARR_URL)
+    sonarr_range = range(GET_SONARR_URL, GET_PLEX_TOKEN)
+    plex_range = [GET_PLEX_TOKEN, GET_PLEX_URL] if PLEX_AVAILABLE else []
+    tmdb_range = [GET_TMDB_API_KEY, GET_STREAMING_REGION]
+    overseerr_range = [ASK_OVERSEERR, GET_OVERSEERR_URL, GET_OVERSEERR_API]
+    streaming_range = [GET_STREAMING_SERVICES]
+
+    for state in setup_conv.states:
+        if state in radarr_range:
+            setup_conv.states[state].append(CommandHandler('skip', skip_radarr))
+        if state in sonarr_range:
+            setup_conv.states[state].append(CommandHandler('skip', skip_sonarr))
+        if state in plex_range:
+            setup_conv.states[state].append(CommandHandler('skip', skip_plex))
+        if state in tmdb_range:
+            setup_conv.states[state].append(CommandHandler('skip', skip_tmdb))
+        if state in overseerr_range:
+            setup_conv.states[state].append(CommandHandler('skip', skip_overseerr))
+        if state in streaming_range:
+            setup_conv.states[state].append(CommandHandler('skip', skip_streaming))
     
     dispatcher.add_handler(CommandHandler("start", start))
     dispatcher.add_handler(login_conv)
@@ -735,6 +874,7 @@ def main():
     dispatcher.add_handler(CommandHandler("language", language_command))
     dispatcher.add_handler(CommandHandler("movie", lambda u,c: search_media(u,c,'movie')))
     dispatcher.add_handler(CommandHandler("show", lambda u,c: search_media(u,c,'show')))
+    dispatcher.add_handler(CommandHandler("debug", debug_media))
     dispatcher.add_handler(CallbackQueryHandler(button_callback))
     
     load_config()
@@ -743,5 +883,8 @@ def main():
     updater.idle()
 
 if __name__ == '__main__':
-    try: main()
-    except Exception as e: logger.critical(f"O bot encontrou um erro fatal: {e}", exc_info=True); sys.exit(1)
+    try:
+        main()
+    except Exception as e:
+        logger.critical(f"O bot encontrou um erro fatal: {e}", exc_info=True)
+        sys.exit(1)
