@@ -1,5 +1,5 @@
 Searcharr Plus - Your Smart Media Manager Bot
-:alien: Telegram Bot Inspired by Searchrr by toddrob99, Searchrr Plus is an enhanced Telegram bot for Radarr and Sonarr with a key feature: Before adding media, it checks availability on your subscribed streaming services to prevent unnecessary downloads. It's easily deployed with Docker and features a guided setup. Searcharr Plus allows admins to effortlessly add new movies and shows, while friends can check library status and streaming availability without needing direct access to your services.
+🤖 Telegram Bot Inspired by Searchrr by toddrob99, Searchrr Plus is an enhanced Telegram bot for Radarr and Sonarr with a key feature: Before adding media, it checks availability on your subscribed streaming services to prevent unnecessary downloads. It's easily deployed with Docker and features a guided setup. Searcharr Plus allows admins to effortlessly add new movies and shows, while friends can check library status and streaming availability without needing direct access to your services.
 
 ✨ Features
 Admin & Friend Roles: A secure, two-tier access system. Admins have full control, while friends can be granted read-only access with unique, revokable codes.
