@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import logging
 import os
 import json
@@ -91,6 +94,8 @@ translations = {
         "auth_friend_code_invalid": "❌ Invalid or expired friend code. Try again or type /cancel.",
         "auth_friend_code_accepted": "✅ Friend code accepted! Welcome.",
         "auth_cancelled": "Authentication canceled.",
+        "search_cancelled": "Ok, search cancelled.",
+        "cancel_button": "❌ Cancel",
         "new_friend_code": "🔑 New single-use friend code for '{name}' generated. It is valid for 24 hours:\n\n`{code}`",
         "help_admin": "👑 *Admin Commands*\n\n/movie <title> - Search and add a movie.\n/movie4k <title> - Add a movie in 4K.\n/show <title> - Search and add a series.\n/show4k <title> - Add a series in 4K.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/friends - Manage friend access.\n/setup - (Re)configure the bot.\n/language - Change the bot's language.\n/streaming - List available streaming codes.\n/debug <movie|show> <title> - Diagnose the check for a media.\n/logout - End your session.\n/help - Show this message.",
         "help_friend": "👥 *Friend Commands*\n\n/movie <title> - Check availability of a movie.\n/show <title> - Check availability of a series.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/language - Change the bot's language.\n/help - Show this message.",
@@ -174,6 +179,8 @@ translations = {
         "auth_friend_code_invalid": "❌ Código de amigo inválido ou expirado. Tente novamente ou digite /cancelar.",
         "auth_friend_code_accepted": "✅ Código de amigo aceito! Bem-vindo(a).",
         "auth_cancelled": "Autenticação cancelada.",
+        "search_cancelled": "Ok, busca cancelada.",
+        "cancel_button": "❌ Cancelar",
         "new_friend_code": "🔑 Novo código de amigo de uso único para '{name}' gerado. É válido por 24 horas:\n\n`{code}`",
         "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Procurar e adicionar um filme.\n/movie4k <título> - Adicionar um filme em 4K.\n/show <título> - Procurar e adicionar uma série.\n/show4k <título> - Adicionar uma série em 4K.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/friends - Gerenciar amigos.\n/setup - (Re)configurar o bot.\n/language - Alterar o idioma do bot.\n/streaming - Listar códigos de streaming disponíveis.\n/debug <movie|show> <título> - Diagnosticar a verificação de uma mídia.\n/logout - Encerrar sua sessão.\n/help - Mostrar esta mensagem.",
         "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Verificar disponibilidade de um filme.\n/show <título> - Verificar disponibilidade de uma série.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/language - Alterar o idioma do bot.\n/help - Mostrar esta mensagem.",
@@ -257,6 +264,8 @@ translations = {
         "auth_friend_code_invalid": "❌ Código de amigo inválido o caducado. Inténtalo de nuevo o escribe /cancelar.",
         "auth_friend_code_accepted": "✅ ¡Código de amigo aceptado! Bienvenido.",
         "auth_cancelled": "Autenticación cancelada.",
+        "search_cancelled": "Ok, búsqueda cancelada.",
+        "cancel_button": "❌ Cancelar",
         "new_friend_code": "🔑 Nuevo código de amigo de un solo uso para '{name}' generado. Es válido por 24 horas:\n\n`{code}`",
         "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Buscar y añadir una película.\n/movie4k <título> - Añadir una película en 4K.\n/show <título> - Buscar y añadir una serie.\n/show4k <título> - Añadir una serie en 4K.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/friends - Gestionar amigos.\n/setup - (Re)configurar el bot.\n/language - Cambiar el idioma del bot.\n/streaming - Listar códigos de streaming disponibles.\n/debug <movie|show> <título> - Diagnosticar la verificación de un medio.\n/logout - Cerrar tu sesión.\n/help - Mostrar este mensaje.",
         "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Comprobar la disponibilidad de una película.\n/show <título> - Comprobar la disponibilidad de una serie.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/language - Cambiar el idioma del bot.\n/help - Mostrar este mensaje.",
@@ -723,6 +732,10 @@ def _send_media_card(update: Update, context: CallbackContext, chat_id=None, mes
     nav_buttons = []
     if idx > 0: nav_buttons.append(InlineKeyboardButton(get_text('nav_prev', lang), callback_data="nav_prev"))
     if idx < len(results) - 1: nav_buttons.append(InlineKeyboardButton(get_text('nav_next', lang), callback_data="nav_next"))
+    
+    # Add cancel button to all search results
+    nav_buttons.append(InlineKeyboardButton(get_text('cancel_button', lang), callback_data="nav_cancel"))
+
     if nav_buttons: buttons.append(nav_buttons)
 
     keyboard = InlineKeyboardMarkup(buttons)
@@ -743,6 +756,11 @@ def button_callback_handler(update: Update, context: CallbackContext):
     query.answer()
     data = query.data
     lang = CONFIG.get('language')
+
+    if data == "nav_cancel":
+        query.message.delete()
+        context.bot.send_message(chat_id=query.message.chat_id, text=get_text('search_cancelled', lang))
+        return
 
     if data.startswith("lang_"):
         set_language_callback(update, context)
@@ -1306,8 +1324,7 @@ def main() -> None:
     # Initialize the updater without persistence to ensure sessions are not saved.
     updater = Updater(bot_token, persistence=None, use_context=True)
     dispatcher = updater.dispatcher
-
-    # This conversation handles the entire login flow for admins
+    
     login_conv = ConversationHandler(
         entry_points=[CommandHandler('login', login_cmd)],
         states={
