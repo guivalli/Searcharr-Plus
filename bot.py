@@ -2,13 +2,14 @@
 # -*- coding: utf-8 -*-
 
 """
-Searchrr Plus - Um bot robusto de gerenciamento de mídia para Telegram.
+Searcharr Plus - A robust media management bot for Telegram.
 
-Este script implementa um bot de Telegram para buscar filmes e séries,
-verificar sua disponibilidade no Plex, serviços de streaming e Overseerr,
-e adicioná-los ao Radarr ou Sonarr caso não estejam disponíveis.
+This script implements a Telegram bot to search for movies and series,
+check their availability on Plex, streaming services, and Overseerr,
+and add them to Radarr or Sonarr if they are not available.
 
-Versão estável combinando e corrigindo os problemas de versões anteriores.
+Stable version combining and fixing issues from previous versions,
+with support for multiple languages and enhanced configuration.
 """
 
 import logging
@@ -18,8 +19,8 @@ import secrets
 from functools import wraps
 from datetime import datetime, timedelta
 
-# --- Dependências ---
-# Certifique-se de instalar com:
+# --- Dependencies ---
+# Make sure to install with:
 # pip install python-telegram-bot==13.15 python-dotenv requests plexapi
 
 from dotenv import load_dotenv
@@ -44,16 +45,12 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 
-# --- Configuração Inicial ---
+# --- Initial Setup ---
 
-# Carrega variáveis de ambiente do arquivo .env
 load_dotenv()
-
-# Cria as pastas necessárias se não existirem
 os.makedirs('logs', exist_ok=True)
 os.makedirs('config', exist_ok=True)
 
-# Configuração de logging para um arquivo
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -64,50 +61,277 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- Constantes ---
+# --- Constants ---
 CONFIG_FILE = "config/config.json"
-
-# Mapeamento de palavras-chave para códigos de serviços de streaming
 KEYWORD_MAP = {
-    'nfx': ('netflix',),
-    'amp': ('amazon prime video', 'prime video'),
-    'max': ('max', 'hbo max'),
-    'dnp': ('disney plus', 'disney+'),
-    'hlu': ('hulu',),
-    'apt': ('apple tv plus', 'apple tv+', 'appletv', 'apple itunes'),
-    'pmp': ('paramount plus', 'paramount+'),
-    'pck': ('peacock', 'peacock premium'),
-    'cru': ('crunchyroll',),
-    'sho': ('showtime',),
-    'glb': ('globoplay',),
-    'sp': ('star+',),
+    'nfx': ('netflix',), 'amp': ('amazon prime video', 'prime video'), 'max': ('max', 'hbo max'),
+    'dnp': ('disney plus', 'disney+'), 'hlu': ('hulu',), 'apt': ('apple tv plus', 'apple tv+', 'appletv'),
+    'pmp': ('paramount plus', 'paramount+'), 'pck': ('peacock',), 'cru': ('crunchyroll',),
+    'sho': ('showtime',), 'glb': ('globoplay',), 'sp': ('star+',)
 }
 
-
-# Estados do ConversationHandler para autenticação e configuração
+# ConversationHandler states
 (
     # Auth
     ASK_FRIEND_CODE, ASK_ADMIN_USER, ASK_ADMIN_PASS,
     # Setup
+    SETUP_MENU,
     SETUP_PLEX_URL, SETUP_PLEX_TOKEN,
     SETUP_TMDB_API_KEY, SETUP_TMDB_REGION,
     SETUP_SERVICES_CODES,
     SETUP_RADARR_URL, SETUP_RADARR_API_KEY, SETUP_RADARR_QUALITY_ID, SETUP_RADARR_ROOT_FOLDER,
     SETUP_SONARR_URL, SETUP_SONARR_API_KEY, SETUP_SONARR_QUALITY_ID, SETUP_SONARR_LANG_ID, SETUP_SONARR_ROOT_FOLDER,
-    SETUP_OVERSEERR_URL, SETUP_OVERSEERR_API_KEY
-) = range(19)
+    SETUP_OVERSEERR_URL, SETUP_OVERSEERR_API_KEY,
+    # Friends
+    FRIENDS_MENU, AWAIT_FRIEND_NAME_TO_ADD, AWAIT_FRIEND_TO_REMOVE
+) = range(23)
 
 
-# --- Gerenciamento de Configuração ---
+# --- Translations ---
+translations = {
+    'en': {
+        "welcome_admin": "✅ Authenticated as Admin. Welcome back!",
+        "welcome_friend": "✅ Authenticated as Friend. Welcome back!",
+        "auth_prompt": "👋 Welcome! If you have a friend code, please enter it now. Or type /cancel.",
+        "auth_initial_user": "🔑 Welcome to the initial setup! Please enter the admin username (defined in .env):",
+        "auth_initial_pass": "🔑 Great. Now, please enter the admin password:",
+        "auth_user_incorrect": "❌ Incorrect username. Try again or ask the bot owner to check the .env file.",
+        "auth_pass_incorrect": "❌ Incorrect password. Please try again.",
+        "auth_admin_set": "✅ Administrator set successfully! Welcome.\n\nNow, let's set up the services. Use the /setup command.",
+        "auth_friend_code_invalid": "❌ Invalid or expired friend code. Try again or type /cancel.",
+        "auth_friend_code_accepted": "✅ Friend code accepted! Welcome.",
+        "auth_cancelled": "Authentication canceled.",
+        "new_friend_code": "🔑 New single-use friend code for '{name}' generated. It is valid for 24 hours:\n\n`{code}`",
+        "help_admin": "👑 *Admin Commands*\n\n/movie <title> - Search and add a movie.\n/show <title> - Search and add a series.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/friends - Manage friend access.\n/setup - (Re)configure the bot.\n/language - Change the bot's language.\n/debug <movie|show> <title> - Diagnose the check for a media.\n/help - Show this message.",
+        "help_friend": "👥 *Friend Commands*\n\n/movie <title> - Check availability of a movie.\n/show <title> - Check availability of a series.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/language - Change the bot's language.\n/help - Show this message.",
+        "no_results": "🤷 No results found for '{query}'. Try being more specific.",
+        "provide_title": "Please provide a title. Usage: /{command} <title>",
+        "check_usage": "Usage: /check <movie|show> <title>",
+        "add_button": "➕ Add",
+        "check_button": "🔎 Check Status",
+        "nav_prev": "⬅️ Previous",
+        "nav_next": "Next ➡️",
+        "error_media_details": "❌ Error: Could not find the details of the selected media.",
+        "checking_status": "🔎 Checking '{title}'...",
+        "media_unavailable": "'{title}' does not seem to be available.",
+        "media_unavailable_friend": "ℹ️ '{title}' is not available. Ask an administrator to add it.",
+        "setup_menu_prompt": "⚙️ *Setup Menu*\n\nChoose a section to configure, or reconfigure everything.",
+        "setup_section_plex": "Plex",
+        "setup_section_tmdb": "TMDB",
+        "setup_section_radarr": "Radarr",
+        "setup_section_sonarr": "Sonarr",
+        "setup_section_overseerr": "Overseerr",
+        "setup_section_streaming": "Streaming Services",
+        "setup_all_button": "(Re)configure everything",
+        "setup_save_exit_button": "💾 Save & Exit",
+        "setup_cancelled": "⚙️ Setup canceled.",
+        "setup_saved": "💾 All settings have been successfully saved! The bot is ready.",
+        "setup_error_saving": "❌ Error saving the configuration file. Check the logs.",
+        "language_prompt": "Please choose your language:",
+        "language_set": "✅ Language set to {lang_name}.",
+        "plex_found": "✅ '{title}' is already available on your Plex: {server_name}.",
+        "streaming_found": "📺 '{title}' is available for streaming on: {services_str}.",
+        "overseerr_found": "⏳ '{title}' has already been requested on Overseerr and is pending.",
+        "service_add_success": "✅ '{title}' has been added to {service_name} and the search has started.",
+        "service_add_exists": "ℹ️ '{title}' already exists in {service_name}.",
+        "service_add_fail": "❌ Failed to add '{title}' to {service_name}.",
+        "check_sonarr_radarr_found": "✅ '{title}' is already in {service_name}.",
+        "check_not_found": "❌ '{title}' was not found in your Plex, Radarr, or Sonarr.",
+        "friends_menu_prompt": "👥 *Friends Management*\n\nWhat would you like to do?",
+        "friends_button_add": "➕ Add Friend",
+        "friends_button_remove": "➖ Remove Friend",
+        "friends_button_list": "📋 List Friends",
+        "friends_button_back": "⬅️ Back",
+        "friends_add_prompt": "Please send the name for the new friend.",
+        "friends_remove_prompt": "Select a friend to remove:",
+        "friends_no_friends_to_remove": "There are no friends to remove.",
+        "friends_list_title": "📋 Friend List",
+        "friends_friend_removed": "✅ Friend '{name}' has been successfully removed.",
+        "friends_no_friends": "You haven't added any friends yet.",
+        "friends_list_format": "- {name}",
+        "debug_start": "🐛 Starting debug for '{query}' ({media_type}).",
+        "debug_tmdb_search": "Searching on TMDB...",
+        "debug_tmdb_found": "TMDB found: '{title}' ({year}) [ID: {tmdb_id}]",
+        "debug_tmdb_not_found": "No results found on TMDB for '{query}'. Debug finished.",
+        "debug_plex_check": "Verifying Plex library...",
+        "debug_plex_success": "SUCCESS: {plex_result}",
+        "debug_plex_fail": "Not found in Plex library.",
+        "debug_streaming_check": "Verifying streaming services...",
+        "debug_streaming_success": "SUCCESS: {streaming_result}",
+        "debug_streaming_fail": "Not found on any subscribed streaming service.",
+        "debug_overseerr_check": "Verifying requests on Overseerr...",
+        "debug_overseerr_success": "SUCCESS: {overseerr_result}",
+        "debug_overseerr_fail": "No request found on Overseerr.",
+        "debug_end": "Debug finished.",
+    },
+    'pt': {
+        "welcome_admin": "✅ Autenticado como Admin. Bem-vindo de volta!",
+        "welcome_friend": "✅ Autenticado como Amigo. Bem-vindo de volta!",
+        "auth_prompt": "👋 Bem-vindo! Se você tem um código de amigo, por favor, insira-o agora. Ou digite /cancelar.",
+        "auth_initial_user": "🔑 Bem-vindo à configuração inicial! Por favor, insira o nome de usuário do admin (definido em .env):",
+        "auth_initial_pass": "🔑 Ótimo. Agora, por favor, insira a senha do admin:",
+        "auth_user_incorrect": "❌ Nome de usuário incorreto. Tente novamente ou peça para o dono do bot verificar o arquivo .env.",
+        "auth_pass_incorrect": "❌ Senha incorreta. Tente novamente.",
+        "auth_admin_set": "✅ Administrador definido com sucesso! Bem-vindo.\n\nAgora, vamos configurar os serviços. Use o comando /setup.",
+        "auth_friend_code_invalid": "❌ Código de amigo inválido ou expirado. Tente novamente ou digite /cancelar.",
+        "auth_friend_code_accepted": "✅ Código de amigo aceito! Bem-vindo(a).",
+        "auth_cancelled": "Autenticação cancelada.",
+        "new_friend_code": "🔑 Novo código de amigo de uso único para '{name}' gerado. É válido por 24 horas:\n\n`{code}`",
+        "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Procurar e adicionar um filme.\n/show <título> - Procurar e adicionar uma série.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/friends - Gerenciar amigos.\n/setup - (Re)configurar o bot.\n/language - Alterar o idioma do bot.\n/debug <movie|show> <título> - Diagnosticar a verificação de uma mídia.\n/help - Mostrar esta mensagem.",
+        "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Verificar disponibilidade de um filme.\n/show <título> - Verificar disponibilidade de uma série.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/language - Alterar o idioma do bot.\n/help - Mostrar esta mensagem.",
+        "no_results": "🤷 Nenhum resultado encontrado para '{query}'. Tente ser mais específico.",
+        "provide_title": "Por favor, forneça um título. Uso: /{command} <título>",
+        "check_usage": "Uso: /check <movie|show> <título>",
+        "add_button": "➕ Adicionar",
+        "check_button": "🔎 Checar Status",
+        "nav_prev": "⬅️ Anterior",
+        "nav_next": "Próximo ➡️",
+        "error_media_details": "❌ Erro: Não foi possível encontrar os detalhes da mídia selecionada.",
+        "checking_status": "🔎 Verificando '{title}'...",
+        "media_unavailable": "'{title}' não parece estar disponível.",
+        "media_unavailable_friend": "ℹ️ '{title}' não está disponível. Peça para um administrador adicioná-lo.",
+        "setup_menu_prompt": "⚙️ *Menu de Configuração*\n\nEscolha uma seção para configurar, ou reconfigure tudo.",
+        "setup_section_plex": "Plex",
+        "setup_section_tmdb": "TMDB",
+        "setup_section_radarr": "Radarr",
+        "setup_section_sonarr": "Sonarr",
+        "setup_section_overseerr": "Overseerr",
+        "setup_section_streaming": "Serviços de Streaming",
+        "setup_all_button": "(Re)configurar tudo",
+        "setup_save_exit_button": "💾 Salvar e Sair",
+        "setup_cancelled": "⚙️ Configuração cancelada.",
+        "setup_saved": "💾 Todas as configurações foram salvas com sucesso! O bot está pronto.",
+        "setup_error_saving": "❌ Erro ao salvar o arquivo de configuração. Verifique os logs.",
+        "language_prompt": "Por favor, escolha o seu idioma:",
+        "language_set": "✅ Idioma alterado para {lang_name}.",
+        "plex_found": "✅ '{title}' já está disponível no seu Plex: {server_name}.",
+        "streaming_found": "📺 '{title}' está disponível para streaming em: {services_str}.",
+        "overseerr_found": "⏳ '{title}' já foi pedido no Overseerr e está pendente.",
+        "service_add_success": "✅ '{title}' foi adicionado ao {service_name} e a busca foi iniciada.",
+        "service_add_exists": "ℹ️ '{title}' já existe no {service_name}.",
+        "service_add_fail": "❌ Falha ao adicionar '{title}' ao {service_name}.",
+        "check_sonarr_radarr_found": "✅ '{title}' já está no {service_name}.",
+        "check_not_found": "❌ '{title}' não foi encontrado no seu Plex, Radarr ou Sonarr.",
+        "friends_menu_prompt": "👥 *Gerenciamento de Amigos*\n\nO que você gostaria de fazer?",
+        "friends_button_add": "➕ Adicionar Amigo",
+        "friends_button_remove": "➖ Remover Amigo",
+        "friends_button_list": "📋 Listar Amigos",
+        "friends_button_back": "⬅️ Voltar",
+        "friends_add_prompt": "Por favor, envie o nome para o novo amigo.",
+        "friends_remove_prompt": "Selecione um amigo para remover:",
+        "friends_no_friends_to_remove": "Não há amigos para remover.",
+        "friends_list_title": "📋 Lista de Amigos",
+        "friends_friend_removed": "✅ Amigo '{name}' foi removido com sucesso.",
+        "friends_no_friends": "Você ainda não adicionou nenhum amigo.",
+        "friends_list_format": "- {name}",
+        "debug_start": "🐛 Iniciando debug para '{query}' ({media_type}).",
+        "debug_tmdb_search": "Buscando no TMDB...",
+        "debug_tmdb_found": "TMDB encontrou: '{title}' ({year}) [ID: {tmdb_id}]",
+        "debug_tmdb_not_found": "Nenhum resultado encontrado no TMDB para '{query}'. Debug encerrado.",
+        "debug_plex_check": "Verificando biblioteca do Plex...",
+        "debug_plex_success": "SUCESSO: {plex_result}",
+        "debug_plex_fail": "Não encontrado na biblioteca do Plex.",
+        "debug_streaming_check": "Verificando serviços de streaming...",
+        "debug_streaming_success": "SUCESSO: {streaming_result}",
+        "debug_streaming_fail": "Não encontrado em nenhum serviço de streaming assinado.",
+        "debug_overseerr_check": "Verificando pedidos no Overseerr...",
+        "debug_overseerr_success": "SUCESSO: {overseerr_result}",
+        "debug_overseerr_fail": "Nenhum pedido encontrado no Overseerr.",
+        "debug_end": "Debug finalizado.",
+    },
+    'es': {
+        "welcome_admin": "✅ Autenticado como Admin. ¡Bienvenido de nuevo!",
+        "welcome_friend": "✅ Autenticado como Amigo. ¡Bienvenido de nuevo!",
+        "auth_prompt": "👋 ¡Bienvenido! Si tienes un código de amigo, ingrésalo ahora. O escribe /cancelar.",
+        "auth_initial_user": "🔑 ¡Bienvenido a la configuración inicial! Por favor, introduce el nombre de usuario del admin (definido en .env):",
+        "auth_initial_pass": "🔑 Genial. Ahora, por favor, introduce la contraseña del admin:",
+        "auth_user_incorrect": "❌ Nombre de usuario incorrecto. Inténtalo de nuevo o pide al dueño del bot que verifique el archivo .env.",
+        "auth_pass_incorrect": "❌ Contraseña incorrecta. Por favor, inténtalo de nuevo.",
+        "auth_admin_set": "✅ ¡Administrador configurado con éxito! Bienvenido.\n\nAhora, vamos a configurar los servicios. Usa el comando /setup.",
+        "auth_friend_code_invalid": "❌ Código de amigo inválido o caducado. Inténtalo de nuevo o escribe /cancelar.",
+        "auth_friend_code_accepted": "✅ ¡Código de amigo aceptado! Bienvenido.",
+        "auth_cancelled": "Autenticación cancelada.",
+        "new_friend_code": "🔑 Nuevo código de amigo de un solo uso para '{name}' generado. Es válido por 24 horas:\n\n`{code}`",
+        "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Buscar y añadir una película.\n/show <título> - Buscar y añadir una serie.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/friends - Gestionar amigos.\n/setup - (Re)configurar el bot.\n/language - Cambiar el idioma del bot.\n/debug <movie|show> <título> - Diagnosticar la verificación de un medio.\n/help - Mostrar este mensaje.",
+        "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Comprobar la disponibilidad de una película.\n/show <título> - Comprobar la disponibilidad de una serie.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/language - Cambiar el idioma del bot.\n/help - Mostrar este mensaje.",
+        "no_results": "🤷 No se encontraron resultados para '{query}'. Intenta ser más específico.",
+        "provide_title": "Por favor, proporciona un título. Uso: /{command} <título>",
+        "check_usage": "Uso: /check <movie|show> <título>",
+        "add_button": "➕ Añadir",
+        "check_button": "🔎 Comprobar Estado",
+        "nav_prev": "⬅️ Anterior",
+        "nav_next": "Siguiente ➡️",
+        "error_media_details": "❌ Error: No se pudieron encontrar los detalles del medio seleccionado.",
+        "checking_status": "🔎 Comprobando '{title}'...",
+        "media_unavailable": "'{title}' no parece estar disponible.",
+        "media_unavailable_friend": "ℹ️ '{title}' no está disponible. Pide a un administrador que lo añada.",
+        "setup_menu_prompt": "⚙️ *Menú de Configuración*\n\nElige una sección para configurar, o reconfigura todo.",
+        "setup_section_plex": "Plex",
+        "setup_section_tmdb": "TMDB",
+        "setup_section_radarr": "Radarr",
+        "setup_section_sonarr": "Sonarr",
+        "setup_section_overseerr": "Overseerr",
+        "setup_section_streaming": "Servicios de Streaming",
+        "setup_all_button": "(Re)configurar todo",
+        "setup_save_exit_button": "💾 Guardar y Salir",
+        "setup_cancelled": "⚙️ Configuración cancelada.",
+        "setup_saved": "💾 ¡Todos los ajustes se han guardado con éxito! El bot está listo.",
+        "setup_error_saving": "❌ Error al guardar el archivo de configuración. Comprueba los logs.",
+        "language_prompt": "Por favor, elige tu idioma:",
+        "language_set": "✅ Idioma cambiado a {lang_name}.",
+        "plex_found": "✅ '{title}' ya está disponible en tu Plex: {server_name}.",
+        "streaming_found": "📺 '{title}' está disponible para streaming en: {services_str}.",
+        "overseerr_found": "⏳ '{title}' ya ha sido solicitado en Overseerr y está pendiente.",
+        "service_add_success": "✅ '{title}' ha sido añadido a {service_name} y la búsqueda ha comenzado.",
+        "service_add_exists": "ℹ️ '{title}' ya existe en {service_name}.",
+        "service_add_fail": "❌ Fallo al añadir '{title}' a {service_name}.",
+        "check_sonarr_radarr_found": "✅ '{title}' ya está en {service_name}.",
+        "check_not_found": "❌ '{title}' no se encontró en tu Plex, Radarr, o Sonarr.",
+        "friends_menu_prompt": "👥 *Gestión de Amigos*\n\n¿Qué te gustaría hacer?",
+        "friends_button_add": "➕ Añadir Amigo",
+        "friends_button_remove": "➖ Eliminar Amigo",
+        "friends_button_list": "📋 Listar Amigos",
+        "friends_button_back": "⬅️ Volver",
+        "friends_add_prompt": "Por favor, envía el nombre para el nuevo amigo.",
+        "friends_remove_prompt": "Selecciona un amigo para eliminar:",
+        "friends_no_friends_to_remove": "No hay amigos para eliminar.",
+        "friends_list_title": "📋 Lista de Amigos",
+        "friends_friend_removed": "✅ Amigo '{name}' ha sido eliminado con éxito.",
+        "friends_no_friends": "Aún no has añadido ningún amigo.",
+        "friends_list_format": "- {name}",
+        "debug_start": "🐛 Iniciando debug para '{query}' ({media_type}).",
+        "debug_tmdb_search": "Buscando en TMDB...",
+        "debug_tmdb_found": "TMDB encontró: '{title}' ({year}) [ID: {tmdb_id}]",
+        "debug_tmdb_not_found": "No se encontraron resultados en TMDB para '{query}'. Debug finalizado.",
+        "debug_plex_check": "Verificando la biblioteca de Plex...",
+        "debug_plex_success": "ÉXITO: {plex_result}",
+        "debug_plex_fail": "No encontrado en la biblioteca de Plex.",
+        "debug_streaming_check": "Verificando servicios de streaming...",
+        "debug_streaming_success": "ÉXITO: {streaming_result}",
+        "debug_streaming_fail": "No encontrado en ningún servicio de streaming suscrito.",
+        "debug_overseerr_check": "Verificando solicitudes en Overseerr...",
+        "debug_overseerr_success": "ÉXITO: {overseerr_result}",
+        "debug_overseerr_fail": "No se encontró ninguna solicitud en Overseerr.",
+        "debug_end": "Debug finalizado.",
+    }
+}
+
+def get_text(key, lang='en'):
+    """Fetches a translation string, falling back to English."""
+    return translations.get(lang, translations['en']).get(key, f"_{key.upper()}_")
+
+
+# --- Configuration Management ---
 
 def load_config():
-    """Carrega a configuração do config.json, criando-o se não existir."""
+    """Loads the configuration from config.json, creating it if it doesn't exist."""
     if not os.path.exists(CONFIG_FILE):
-        logger.warning(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando um novo com valores padrão.")
+        logger.warning(f"File '{CONFIG_FILE}' not found. Creating a new one with default values.")
         default_config = {
             "admin_user_id": None,
-            "friend_user_ids": [],
+            "friend_user_ids": {}, # Use dict for {user_id: name}
             "friend_codes": {},
+            "language": "en", # Default to English
             "plex": {"url": "", "token": ""},
             "tmdb": {"api_key": "", "region": "BR"},
             "radarr": {"url": "", "api_key": "", "quality_profile_id": "1", "root_folder_path": ""},
@@ -120,65 +344,60 @@ def load_config():
         return default_config
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            config = json.load(f)
+            if 'language' not in config:
+                config['language'] = 'en' # Ensure the language key exists
+            return config
     except (json.JSONDecodeError, IOError) as e:
-        logger.error(f"Erro ao carregar o arquivo de configuração: {e}")
-        # Retorna um dicionário vazio para evitar que o bot quebre
+        logger.error(f"Error loading configuration file: {e}")
         return {}
 
 def save_config(config_dict):
-    """Salva o dicionário de configuração no arquivo definido pela constante CONFIG_FILE."""
+    """Saves the configuration dictionary to the file defined by CONFIG_FILE constant."""
     try:
-        # A constante CONFIG_FILE aponta para 'config/config.json'
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config_dict, f, indent=4)
-        logger.info(f"Configuração salva com sucesso em '{CONFIG_FILE}'.")
+        logger.info(f"Configuration successfully saved to '{CONFIG_FILE}'.")
         return True
     except IOError as e:
-        logger.error(f"Erro ao salvar o arquivo de configuração '{CONFIG_FILE}': {e}")
+        logger.error(f"Error saving configuration file '{CONFIG_FILE}': {e}")
         return False
 
-# Carrega a configuração na inicialização do bot
 CONFIG = load_config()
 
 
-# --- Autenticação & Decorators ---
+# --- Authentication & Decorators ---
 
 def is_admin(user_id):
-    """Verifica se um user_id pertence ao admin."""
     return user_id == CONFIG.get("admin_user_id")
 
 def admin_required(func):
-    """Decorator para restringir o acesso a comandos de administrador."""
     @wraps(func)
     def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
-        user_id = update.effective_user.id
-        if not is_admin(user_id):
-            update.message.reply_text("⛔ Este comando é apenas para o administrador.")
+        if not is_admin(update.effective_user.id):
+            update.message.reply_text("⛔ This command is for administrators only.")
             return
         return func(update, context, *args, **kwargs)
     return wrapped
 
 def auth_required(func):
-    """Decorator para garantir que o usuário está autenticado (admin ou amigo)."""
     @wraps(func)
     def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
         user_id = update.effective_user.id
-        if not (is_admin(user_id) or user_id in CONFIG.get("friend_user_ids", [])):
+        if not (is_admin(user_id) or str(user_id) in CONFIG.get("friend_user_ids", {})):
             message = update.message or update.callback_query.message
-            message.reply_text("🚫 Você precisa estar autenticado. Por favor, use /start.")
+            message.reply_text("🚫 You need to be authenticated. Please use /start.")
             return
         return func(update, context, *args, **kwargs)
     return wrapped
 
 def config_required(section):
-    """Decorator para verificar se uma seção específica da configuração existe."""
     def decorator(func):
         @wraps(func)
         def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
             is_configured = True
             conf_section = CONFIG.get(section.lower(), {})
-            if section.lower() == 'radarr' or section.lower() == 'sonarr':
+            if section.lower() in ['radarr', 'sonarr']:
                 if not all(conf_section.get(k) for k in ['url', 'api_key', 'root_folder_path']):
                     is_configured = False
             elif not all(conf_section.values()):
@@ -186,131 +405,112 @@ def config_required(section):
 
             if not is_configured:
                 message = update.message or update.callback_query.message
-                message.reply_text(f"⚠️ A seção '{section}' não está configurada. O admin deve usar /setup.")
+                message.reply_text(f"⚠️ The '{section}' section is not configured. The admin must use /setup.")
                 return
             return func(update, context, *args, **kwargs)
         return wrapped
     return decorator
 
 
-# --- Funções de API e Lógica de Verificação ---
+# --- API & Verification Logic Functions ---
 
 def _api_get_request(url, params=None, headers=None):
-    """Função auxiliar para requisições GET, com logging de erro."""
     try:
         res = requests.get(url, params=params, headers=headers, timeout=20)
         res.raise_for_status()
         return res.json()
     except requests.exceptions.RequestException as e:
-        logger.error(f"Falha na requisição GET para {url}: {e}")
+        logger.error(f"GET request failed for {url}: {e}")
         return None
 
 def _api_post_request(url, json_payload=None, headers=None):
-    """Função auxiliar para requisições POST, com logging de erro."""
     try:
         res = requests.post(url, json=json_payload, headers=headers, timeout=20)
         res.raise_for_status()
-        # Algumas APIs retornam 201 (Created) sem conteúdo JSON
         if res.status_code in [200, 201] and res.content:
             return res.json()
         return {"status": "success", "code": res.status_code}
     except requests.exceptions.RequestException as e:
-        logger.error(f"Falha na requisição POST para {url}: {e}")
+        logger.error(f"POST request failed for {url}: {e}")
         if e.response is not None:
-            logger.error(f"Resposta da API: {e.response.text}")
+            logger.error(f"API Response: {e.response.text}")
             try:
-                return e.response.json() # Tenta retornar o erro da API
+                return e.response.json()
             except json.JSONDecodeError:
                 return {"error": e.response.text}
         return {"error": str(e)}
 
-# --- Cascata de Verificação de Mídia ---
+# --- Media Verification Cascade ---
 
 def check_plex_library(title, year):
-    """Verificação 1: Checa se o item já existe na biblioteca do Plex."""
     plex_config = CONFIG.get('plex', {})
-    if not all(plex_config.get(k) for k in ['url', 'token']):
-        return None
+    if not all(plex_config.get(k) for k in ['url', 'token']): return None
     try:
         plex = PlexServer(plex_config['url'], plex_config['token'])
-        # Busca pelo título e filtra pelo ano para maior precisão
         results = plex.search(title)
         for item in results:
-            if hasattr(item, 'year') and item.year == year:
-                 if hasattr(item, 'media') and item.media:
-                    logger.info(f"Mídia '{title}' encontrada no Plex.")
-                    return f"✅ '{item.title}' já está disponível no seu Plex: {plex.friendlyName}."
-    except PlexNotFound:
-        pass # Normal se não encontrar
+            if hasattr(item, 'year') and item.year == year and hasattr(item, 'media') and item.media:
+                logger.info(f"Media '{title}' found on Plex.")
+                return get_text('plex_found', CONFIG.get('language')).format(title=item.title, server_name=plex.friendlyName)
     except Exception as e:
-        logger.error(f"Erro ao verificar a biblioteca do Plex: {e}")
+        logger.error(f"Error checking Plex library: {e}")
     return None
 
 @config_required('TMDB')
 def check_streaming_services(tmdb_id, media_type, title):
-    """Verificação 2: Checa provedores de streaming via TMDB."""
     tmdb_config = CONFIG.get('tmdb')
     region = tmdb_config.get('region', 'BR')
+    lang = CONFIG.get('language')
     url = f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/watch/providers"
     params = {'api_key': tmdb_config['api_key']}
     data = _api_get_request(url, params)
-
-    if not data or region not in data.get('results', {}):
-        return None
-
+    if not data or region not in data.get('results', {}): return None
+    
     region_data = data['results'][region]
     provider_names = []
-    # Verifica streaming gratuito, com anúncios e por assinatura
     for provider_type in ['flatrate', 'ads', 'free']:
         if provider_type in region_data:
             provider_names.extend([p['provider_name'] for p in region_data[provider_type]])
-
-    if not provider_names:
-        return None
+    
+    if not provider_names: return None
 
     user_services = CONFIG.get("subscribed_services", [])
     available_on = set()
     for provider in provider_names:
         provider_lower = provider.lower()
         for code in user_services:
-            keywords = KEYWORD_MAP.get(code.lower(), ())
-            if any(keyword in provider_lower for keyword in keywords):
+            if any(keyword in provider_lower for keyword in KEYWORD_MAP.get(code.lower(), ())):
                 available_on.add(provider)
-                break # Evita adicionar o mesmo provedor múltiplas vezes
-
+                break
+    
     if available_on:
         services_str = ', '.join(sorted(list(available_on)))
-        logger.info(f"Mídia '{title}' encontrada nos serviços de streaming: {services_str}")
-        return f"📺 '{title}' está disponível para streaming em: {services_str}."
-
+        logger.info(f"Media '{title}' found on streaming services: {services_str}")
+        return get_text('streaming_found', lang).format(title=title, services_str=services_str)
     return None
 
 def check_overseerr(tmdb_id, media_type):
-    """Verificação 3: Checa por pedidos existentes no Overseerr."""
     ov_config = CONFIG.get('overseerr', {})
-    if not all(ov_config.get(k) for k in ['url', 'api_key']):
-        return None
-    
-    # A API do Overseerr usa 'tv' ou 'movie'
+    if not all(ov_config.get(k) for k in ['url', 'api_key']): return None
+    lang = CONFIG.get('language')
     internal_media_type = 'tv' if media_type == 'show' else 'movie'
     url = f"{ov_config['url'].rstrip('/')}/api/v1/request"
     headers = {'X-Api-Key': ov_config['api_key']}
     
-    # Busca por todos os pedidos e filtra pelo tmdbId
     all_requests = _api_get_request(url, headers=headers)
     if all_requests and 'results' in all_requests:
         for req in all_requests['results']:
             if req['media'].get('tmdbId') == tmdb_id:
-                logger.info(f"Mídia com TMDB ID {tmdb_id} já foi pedida no Overseerr.")
+                logger.info(f"Media with TMDB ID {tmdb_id} has already been requested on Overseerr.")
                 title = req['media'].get('title') or req['media'].get('name')
-                return f"⏳ '{title}' já foi pedido no Overseerr e está pendente."
+                return get_text('overseerr_found', lang).format(title=title)
     return None
 
 def add_to_arr_service(media_info, service_name):
-    """Verificação 4: Adiciona a mídia ao Radarr ou Sonarr."""
     config = CONFIG.get(service_name.lower())
+    lang = CONFIG.get('language')
     if not all(config.get(k) for k in ['url', 'api_key', 'quality_profile_id', 'root_folder_path']):
-        return f"⚠️ {service_name.capitalize()} não está totalmente configurado."
+        return f"⚠️ {service_name.capitalize()} is not fully configured."
 
     api_path = 'movie' if service_name == 'radarr' else 'series'
     url = f"{config['url'].rstrip('/')}/api/v3/{api_path}"
@@ -320,8 +520,7 @@ def add_to_arr_service(media_info, service_name):
         "title": media_info['title'],
         "qualityProfileId": int(config['quality_profile_id']),
         "rootFolderPath": config['root_folder_path'],
-        "monitored": True,
-        "tmdbId": media_info['tmdb_id'] # Comum para ambos agora
+        "monitored": True, "tmdbId": media_info['tmdb_id']
     }
 
     if service_name == 'radarr':
@@ -329,518 +528,687 @@ def add_to_arr_service(media_info, service_name):
     else: # Sonarr
         payload['languageProfileId'] = int(config.get('language_profile_id', 1))
         payload['addOptions'] = {"searchForMissingEpisodes": True}
-        # Sonarr precisa do tvdbId, buscamos ele
         tmdb_key = CONFIG.get('tmdb', {}).get('api_key')
-        if not tmdb_key: return "⚠️ Chave de API do TMDB não configurada para buscar TVDB ID."
-        
+        if not tmdb_key: return "⚠️ TMDB API key not configured to fetch TVDB ID."
         ids_url = f"https://api.themoviedb.org/3/tv/{media_info['tmdb_id']}/external_ids?api_key={tmdb_key}"
         external_ids = _api_get_request(ids_url)
         if not external_ids or not external_ids.get('tvdb_id'):
-            return f"❌ Não foi possível encontrar o TVDB ID para '{media_info['title']}'. Não pode ser adicionado ao Sonarr."
+            return f"❌ Could not find TVDB ID for '{media_info['title']}'. Cannot add to Sonarr."
         payload['tvdbId'] = external_ids['tvdb_id']
 
-    # Antes de adicionar, verifica se já existe
     all_items = _api_get_request(url, headers=headers)
     if all_items and any(item.get('tmdbId') == media_info['tmdb_id'] for item in all_items):
-        return f"ℹ️ '{media_info['title']}' já existe no {service_name.capitalize()}."
+        return get_text('service_add_exists', lang).format(title=media_info['title'], service_name=service_name.capitalize())
 
     response = _api_post_request(url, json_payload=payload, headers=headers)
-
     if response and response.get('title') == media_info['title']:
-        return f"✅ '{media_info['title']}' foi adicionado ao {service_name.capitalize()} e a busca foi iniciada."
-    elif response and any("already been added" in str(msg) for msg in response.get('errorMessage', [])):
-        return f"ℹ️ '{media_info['title']}' já existe no {service_name.capitalize()}."
-    else:
-        logger.error(f"Falha ao adicionar ao {service_name.capitalize()}. Resposta: {response}")
-        return f"❌ Falha ao adicionar '{media_info['title']}' ao {service_name.capitalize()}."
+        return get_text('service_add_success', lang).format(title=media_info['title'], service_name=service_name.capitalize())
+    
+    logger.error(f"Failed to add to {service_name.capitalize()}. Response: {response}")
+    return get_text('service_add_fail', lang).format(title=media_info['title'], service_name=service_name.capitalize())
 
-# --- Handlers de Comandos ---
+
+# --- Command Handlers ---
 
 def start_cmd(update: Update, context: CallbackContext) -> int:
-    """Lida com o comando /start e inicia a autenticação se necessário."""
     global CONFIG
-    CONFIG = load_config() # Recarrega a config para pegar novos amigos
+    CONFIG = load_config()
     user_id = update.effective_user.id
+    lang = CONFIG.get('language')
 
     if is_admin(user_id):
-        update.message.reply_text("✅ Autenticado como Admin. Bem-vindo de volta!")
+        update.message.reply_text(get_text("welcome_admin", lang))
         return ConversationHandler.END
-    if user_id in CONFIG.get("friend_user_ids", []):
-        update.message.reply_text("✅ Autenticado como Amigo. Bem-vindo de volta!")
+    if str(user_id) in CONFIG.get("friend_user_ids", {}):
+        update.message.reply_text(get_text("welcome_friend", lang))
         return ConversationHandler.END
 
-    # Se o admin ainda não foi definido, o primeiro usuário se torna um
     if not CONFIG.get("admin_user_id"):
-        # Verifica se as credenciais estão no .env
         if not (os.getenv("BOT_USER") and os.getenv("BOT_PASSWORD")):
-            update.message.reply_text("🚨 ERRO CRÍTICO: As variáveis BOT_USER e BOT_PASSWORD não estão definidas no arquivo .env. O bot não pode ser configurado.")
+            update.message.reply_text("🚨 CRITICAL ERROR: BOT_USER and BOT_PASSWORD variables are not set in the .env file.")
             return ConversationHandler.END
-            
         context.user_data['admin_id_to_set'] = user_id
-        update.message.reply_text("🔑 Bem-vindo à configuração inicial! Por favor, insira o nome de usuário do admin (definido em .env):")
+        update.message.reply_text(get_text("auth_initial_user", lang))
         return ASK_ADMIN_USER
 
-    update.message.reply_text("👋 Bem-vindo! Se você tem um código de amigo, por favor, insira-o agora. Ou digite /cancelar.")
+    update.message.reply_text(get_text("auth_prompt", lang))
     return ASK_FRIEND_CODE
 
 def ask_admin_user_handler(update: Update, context: CallbackContext) -> int:
-    """Valida o nome de usuário do admin."""
+    lang = CONFIG.get('language')
     if update.message.text.strip() == os.getenv("BOT_USER"):
-        update.message.reply_text("🔑 Ótimo. Agora, por favor, insira a senha do admin:")
+        update.message.reply_text(get_text("auth_initial_pass", lang))
         return ASK_ADMIN_PASS
     else:
-        update.message.reply_text("❌ Nome de usuário incorreto. Tente novamente ou peça para o dono do bot verificar o arquivo .env.")
+        update.message.reply_text(get_text("auth_user_incorrect", lang))
         return ASK_ADMIN_USER
 
 def ask_admin_pass_handler(update: Update, context: CallbackContext) -> int:
-    """Valida a senha do admin e finaliza a configuração inicial."""
+    global CONFIG
+    lang = CONFIG.get('language')
     if update.message.text.strip() == os.getenv("BOT_PASSWORD"):
-        user_id = context.user_data.get('admin_id_to_set')
-        CONFIG['admin_user_id'] = user_id
+        CONFIG['admin_user_id'] = context.user_data.get('admin_id_to_set')
         save_config(CONFIG)
-        update.message.reply_text("✅ Administrador definido com sucesso! Bem-vindo.\n\nAgora, vamos configurar os serviços. Use o comando /setup.")
+        update.message.reply_text(get_text("auth_admin_set", lang))
         return ConversationHandler.END
     else:
-        update.message.reply_text("❌ Senha incorreta. Tente novamente.")
+        update.message.reply_text(get_text("auth_pass_incorrect", lang))
         return ASK_ADMIN_PASS
 
 def ask_friend_code_handler(update: Update, context: CallbackContext) -> int:
-    """Valida um código de amigo."""
+    global CONFIG
     code = update.message.text.strip()
+    lang = CONFIG.get('language')
     
-    # Limpa códigos expirados
+    # Find which user this code belongs to
+    friend_name = None
+    friend_code_data = None
     for c, data in list(CONFIG.get('friend_codes', {}).items()):
-        if datetime.fromisoformat(data['expires']) < datetime.now():
-            del CONFIG['friend_codes'][c]
+        if c == code:
+            if datetime.fromisoformat(data['expires']) < datetime.now():
+                del CONFIG['friend_codes'][c] # Clean up expired code
+                break
+            friend_name = data['name']
+            friend_code_data = data
+            break
 
-    if code in CONFIG.get('friend_codes', {}):
-        CONFIG.setdefault('friend_user_ids', []).append(update.effective_user.id)
-        del CONFIG['friend_codes'][code] # Código de uso único
+    if friend_name and friend_code_data:
+        CONFIG.setdefault('friend_user_ids', {})[str(update.effective_user.id)] = friend_name
+        del CONFIG['friend_codes'][code] # Code is single-use
         save_config(CONFIG)
-        update.message.reply_text("✅ Código de amigo aceito! Bem-vindo(a).")
+        update.message.reply_text(get_text('auth_friend_code_accepted', lang))
         help_cmd(update, context)
         return ConversationHandler.END
     else:
-        update.message.reply_text("❌ Código de amigo inválido ou expirado. Tente novamente ou digite /cancelar.")
+        update.message.reply_text(get_text('auth_friend_code_invalid', lang))
         return ASK_FRIEND_CODE
 
 def cancel_auth(update: Update, context: CallbackContext) -> int:
-    """Cancela a conversa de autenticação."""
-    update.message.reply_text("Autenticação cancelada.")
+    update.message.reply_text(get_text('auth_cancelled', CONFIG.get('language')))
     return ConversationHandler.END
-
-
-@admin_required
-def addfriend_cmd(update: Update, context: CallbackContext):
-    """Gera um novo código de amigo de uso único."""
-    code = secrets.token_hex(8)
-    expires = (datetime.now() + timedelta(days=1)).isoformat()
-    CONFIG.setdefault('friend_codes', {})[code] = {'expires': expires}
-    save_config(CONFIG)
-    update.message.reply_text(f"🔑 Novo código de amigo de uso único gerado. É válido por 24 horas:\n\n`{code}`", parse_mode=ParseMode.MARKDOWN)
 
 @auth_required
 def help_cmd(update: Update, context: CallbackContext):
-    """Mostra a mensagem de ajuda com base na função do usuário."""
+    lang = CONFIG.get('language')
     if is_admin(update.effective_user.id):
-        update.message.reply_text(
-            "👑 *Comandos de Admin*\n\n"
-            "/movie <título> - Procurar e adicionar um filme.\n"
-            "/show <título> - Procurar e adicionar uma série.\n"
-            "/addfriend - Gerar um código de amigo.\n"
-            "/setup - (Re)configurar o bot.\n"
-            "/debug <movie|show> <título> - Diagnosticar a verificação de uma mídia.\n"
-            "/help - Mostrar esta mensagem.",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        update.message.reply_text(get_text('help_admin', lang), parse_mode=ParseMode.MARKDOWN)
     else:
-        update.message.reply_text(
-            "👥 *Comandos de Amigo*\n\n"
-            "/movie <título> - Verificar disponibilidade de um filme.\n"
-            "/show <título> - Verificar disponibilidade de uma série.\n"
-            "/help - Mostrar esta mensagem.",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        update.message.reply_text(get_text('help_friend', lang), parse_mode=ParseMode.MARKDOWN)
 
-
-def _display_search_results(update: Update, context: CallbackContext, results: list, media_type: str):
-    """Mostra os resultados da pesquisa do TMDB com navegação."""
+def _display_search_results(update: Update, context: CallbackContext, results: list, media_type: str, mode: str):
+    lang = CONFIG.get('language')
     if not results:
-        query = " ".join(context.args)
-        update.message.reply_text(f"🤷 Nenhum resultado encontrado para '{query}'. Tente ser mais específico.")
+        update.message.reply_text(get_text('no_results', lang).format(query=" ".join(context.args)))
         return
 
-    context.user_data['search_results'] = results
-    context.user_data['search_index'] = 0
-    context.user_data['search_media_type'] = media_type
-    
+    context.user_data.update({'search_results': results, 'search_index': 0, 'search_media_type': media_type, 'search_mode': mode})
     _send_media_card(update, context)
 
 def _send_media_card(update: Update, context: CallbackContext, chat_id=None, message_id=None):
-    """Envia ou edita a mensagem do cartão de mídia com botões."""
     idx = context.user_data['search_index']
     results = context.user_data['search_results']
     item = results[idx]
     media_type = context.user_data['search_media_type']
+    mode = context.user_data['search_mode']
+    lang = CONFIG.get('language')
 
     is_movie = media_type == 'movie'
     title = item.get('title') if is_movie else item.get('name')
-    release_date = item.get('release_date') if is_movie else item.get('first_air_date', '')
+    release_date = item.get('release_date', item.get('first_air_date', ''))
     year = release_date.split('-')[0] if release_date else 'N/A'
-    overview = item.get('overview', 'Sem sinopse disponível.')
+    overview = item.get('overview', 'No synopsis available.')
     tmdb_id = item['id']
     poster_path = item.get('poster_path')
     image_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else f"https://placehold.co/500x750/1c1c1e/ffffff?text={requests.utils.quote(title)}"
 
     caption = f"*{title} ({year})*\n\n{overview[:700]}"
     
-    action_text = "➕ Adicionar"
-    callback_data = f"add_{media_type}_{tmdb_id}"
-    
     buttons = []
-    # Apenas admins podem ver o botão de adicionar
-    if is_admin(update.effective_user.id):
-         buttons.append([InlineKeyboardButton(action_text, callback_data=callback_data)])
-    else: # Amigos veem um botão para checar status
-        buttons.append([InlineKeyboardButton("🔎 Verificar Disponibilidade", callback_data=callback_data)])
+    if mode == 'add':
+        if is_admin(update.effective_user.id):
+            buttons.append([InlineKeyboardButton(get_text('add_button', lang), callback_data=f"add_{media_type}_{tmdb_id}")])
+        else:
+            buttons.append([InlineKeyboardButton(get_text('check_button', lang), callback_data=f"add_{media_type}_{tmdb_id}")])
+    elif mode == 'check':
+        buttons.append([InlineKeyboardButton(get_text('check_button', lang), callback_data=f"check_{media_type}_{tmdb_id}")])
 
     nav_buttons = []
-    if idx > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ Anterior", callback_data="nav_prev"))
-    if idx < len(results) - 1:
-        nav_buttons.append(InlineKeyboardButton("Próximo ➡️", callback_data="nav_next"))
-    if nav_buttons:
-        buttons.append(nav_buttons)
+    if idx > 0: nav_buttons.append(InlineKeyboardButton(get_text('nav_prev', lang), callback_data="nav_prev"))
+    if idx < len(results) - 1: nav_buttons.append(InlineKeyboardButton(get_text('nav_next', lang), callback_data="nav_next"))
+    if nav_buttons: buttons.append(nav_buttons)
 
     keyboard = InlineKeyboardMarkup(buttons)
     effective_chat_id = chat_id or update.effective_chat.id
-    
     media = InputMediaPhoto(media=image_url, caption=caption, parse_mode=ParseMode.MARKDOWN)
 
     if message_id:
         try:
             context.bot.edit_message_media(chat_id=effective_chat_id, message_id=message_id, media=media, reply_markup=keyboard)
         except Exception as e:
-            if 'Message is not modified' not in str(e):
-                logger.warning(f"Não foi possível editar a mensagem de mídia (provavelmente idêntica): {e}")
+            if 'Message is not modified' not in str(e): logger.warning(f"Error editing media message: {e}")
     else:
         sent_message = context.bot.send_photo(effective_chat_id, photo=image_url, caption=caption, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
         context.user_data['search_message_id'] = sent_message.message_id
 
-
-@auth_required
-@config_required('TMDB')
-def search_cmd(update: Update, context: CallbackContext, media_type: str):
-    """Lida com os comandos /movie e /show."""
-    if not context.args:
-        update.message.reply_text(f"Por favor, forneça um título. Uso: /{media_type} <título>")
-        return
-    
-    query = " ".join(context.args)
-    tmdb_key = CONFIG.get('tmdb', {}).get('api_key')
-    
-    internal_media_type = 'tv' if media_type == 'show' else 'movie'
-    url = f"https://api.themoviedb.org/3/search/{internal_media_type}"
-    params = {'api_key': tmdb_key, 'query': query, 'language': 'pt-BR', 'include_adult': 'false'}
-    data = _api_get_request(url, params)
-    
-    if data and 'results' in data:
-        _display_search_results(update, context, data['results'], media_type)
-    else:
-        update.message.reply_text(f"🤷 Nenhum resultado encontrado para '{query}'.")
-
 def button_callback_handler(update: Update, context: CallbackContext):
-    """Lida com todos os cliques em botões inline."""
     query = update.callback_query
     query.answer()
     data = query.data
+    lang = CONFIG.get('language')
+
+    if data.startswith("lang_"):
+        set_language_callback(update, context)
+        return
 
     if data.startswith("nav_"):
-        direction = 1 if data == 'nav_next' else -1
-        context.user_data['search_index'] += direction
+        context.user_data['search_index'] += 1 if data == 'nav_next' else -1
         _send_media_card(update, context, chat_id=query.message.chat_id, message_id=query.message.message_id)
+        return
 
-    elif data.startswith("add_"):
-        # Deleta o cartão de busca para não poluir o chat
-        query.message.delete()
-        
-        _, media_type, tmdb_id_str = data.split('_')
-        tmdb_id = int(tmdb_id_str)
-        
-        # Encontra o item selecionado para pegar os detalhes
-        item = next((item for item in context.user_data.get('search_results', []) if item['id'] == tmdb_id), None)
-        if not item:
-            query.message.reply_text("❌ Erro: Não foi possível encontrar os detalhes da mídia selecionada.")
-            return
+    query.message.delete()
+    
+    action, media_type, tmdb_id_str = data.split('_')
+    tmdb_id = int(tmdb_id_str)
+    
+    item = next((i for i in context.user_data.get('search_results', []) if i['id'] == tmdb_id), None)
+    if not item:
+        query.message.reply_text(get_text('error_media_details', lang))
+        return
 
-        is_movie = media_type == 'movie'
-        title = item.get('title') if is_movie else item.get('name')
-        release_date = item.get('release_date') if is_movie else item.get('first_air_date', '')
-        year = int(release_date.split('-')[0]) if release_date else 0
-        
-        media_info = {'title': title, 'year': year, 'tmdb_id': tmdb_id, 'media_type': media_type}
+    title = item.get('title') or item.get('name')
+    release_date = item.get('release_date') or item.get('first_air_date', '')
+    year = int(release_date.split('-')[0]) if release_date else 0
+    media_info = {'title': title, 'year': year, 'tmdb_id': tmdb_id, 'media_type': media_type}
 
+    if action == 'add':
         perform_full_check_and_act(context, media_info, query.message.chat_id, update.effective_user.id)
-
+    elif action == 'check':
+        perform_simplified_check(context, media_info, query.message.chat_id)
 
 def perform_full_check_and_act(context: CallbackContext, media_info: dict, chat_id: int, user_id: int):
-    """Executa a cascata de verificação completa e age de acordo."""
     title, year, tmdb_id = media_info['title'], media_info['year'], media_info['tmdb_id']
-    media_type = 'show' if media_info['media_type'] == 'tv' else 'movie'
+    media_type = 'tv' if media_info['media_type'] == 'show' else 'movie'
+    lang = CONFIG.get('language')
     
-    status_msg = context.bot.send_message(chat_id, f"🔎 Verificando '{title}'...")
+    status_msg = context.bot.send_message(chat_id, get_text('checking_status', lang).format(title=title))
 
-    # 1. Checar Plex
-    status_msg.edit_text(f"Verificando Plex para '{title}'...")
     if (plex_result := check_plex_library(title, year)):
         status_msg.edit_text(plex_result)
         return
 
-    # 2. Checar Streaming
-    status_msg.edit_text(f"Verificando serviços de streaming para '{title}'...")
     if (streaming_result := check_streaming_services(tmdb_id, media_type, title)):
         status_msg.edit_text(streaming_result)
         return
 
-    # 3. Checar Overseerr
-    status_msg.edit_text(f"Verificando pedidos no Overseerr para '{title}'...")
     if (overseerr_result := check_overseerr(tmdb_id, media_type)):
         status_msg.edit_text(overseerr_result)
         return
         
-    # 4. Se nada foi encontrado, agir
-    status_msg.edit_text(f"'{title}' não parece estar disponível.")
+    status_msg.edit_text(get_text('media_unavailable', lang).format(title=title))
     
-    # Apenas admins podem adicionar
     if is_admin(user_id):
-        service_to_add = 'radarr' if media_type == 'movie' else 'sonarr'
-        add_result = add_to_arr_service(media_info, service_to_add)
+        add_result = add_to_arr_service(media_info, 'radarr' if media_type == 'movie' else 'sonarr')
         context.bot.send_message(chat_id, add_result)
-    else: # Amigos recebem uma mensagem final
-        context.bot.send_message(chat_id, f"ℹ️ '{title}' não está disponível. Peça para um administrador adicioná-lo.")
+    else:
+        context.bot.send_message(chat_id, get_text('media_unavailable_friend', lang).format(title=title))
     
-    status_msg.delete() # Limpa a mensagem de "Verificando..."
+    status_msg.delete()
 
-@admin_required
-def debug_cmd(update: Update, context: CallbackContext):
-    """Executa um diagnóstico passo a passo da verificação de mídia."""
+def check_arr_service(media_info, service_name):
+    """Checks if a media item exists in Radarr or Sonarr."""
+    config = CONFIG.get(service_name.lower())
+    if not all(config.get(k) for k in ['url', 'api_key']): return None
+    
+    api_path = 'movie' if service_name == 'radarr' else 'series'
+    url = f"{config['url'].rstrip('/')}/api/v3/{api_path}"
+    headers = {'X-Api-Key': config['api_key']}
+    
+    all_items = _api_get_request(url, headers=headers)
+    if all_items and any(item.get('tmdbId') == media_info['tmdb_id'] for item in all_items):
+        return get_text('check_sonarr_radarr_found', CONFIG.get('language')).format(title=media_info['title'], service_name=service_name.capitalize())
+    return None
+
+def perform_simplified_check(context: CallbackContext, media_info: dict, chat_id: int):
+    """Performs a simplified check on Plex and Radarr/Sonarr only."""
+    title, year = media_info['title'], media_info['year']
+    service_name = 'radarr' if media_info['media_type'] == 'movie' else 'sonarr'
+    lang = CONFIG.get('language')
+
+    status_msg = context.bot.send_message(chat_id, get_text('checking_status', lang).format(title=title))
+
+    if (plex_result := check_plex_library(title, year)):
+        status_msg.edit_text(plex_result)
+        return
+    
+    if (arr_result := check_arr_service(media_info, service_name)):
+        status_msg.edit_text(arr_result)
+        return
+
+    status_msg.edit_text(get_text('check_not_found', lang).format(title=title))
+
+# --- Search Command Handlers ---
+
+@auth_required
+@config_required('TMDB')
+def search_cmd(update: Update, context: CallbackContext, media_type: str):
+    lang = CONFIG.get('language')
+    if not context.args:
+        update.message.reply_text(get_text('provide_title', lang).format(command=media_type))
+        return
+    
+    query = " ".join(context.args)
+    tmdb_key = CONFIG['tmdb']['api_key']
+    internal_media_type = 'tv' if media_type == 'show' else 'movie'
+    url = f"https://api.themoviedb.org/3/search/{internal_media_type}"
+    params = {'api_key': tmdb_key, 'query': query, 'language': lang, 'include_adult': 'false'}
+    data = _api_get_request(url, params)
+    
+    if data and data.get('results'):
+        _display_search_results(update, context, data['results'], media_type, mode='add')
+    else:
+        update.message.reply_text(get_text('no_results', lang).format(query=query))
+
+@auth_required
+@config_required('TMDB')
+def check_cmd(update: Update, context: CallbackContext):
+    lang = CONFIG.get('language')
     if len(context.args) < 2:
-        update.message.reply_text("Uso: /debug <movie|show> <título>")
+        update.message.reply_text(get_text('check_usage', lang))
         return
 
     media_type, query = context.args[0].lower(), " ".join(context.args[1:])
-
     if media_type not in ['movie', 'show']:
-        update.message.reply_text("O primeiro argumento deve ser 'movie' ou 'show'.")
+        update.message.reply_text(get_text('check_usage', lang))
         return
 
-    chat_id = update.effective_chat.id
+    tmdb_key = CONFIG['tmdb']['api_key']
+    internal_media_type = 'tv' if media_type == 'show' else 'movie'
+    url = f"https://api.themoviedb.org/3/search/{internal_media_type}"
+    params = {'api_key': tmdb_key, 'query': query, 'language': lang, 'include_adult': 'false'}
+    data = _api_get_request(url, params)
+    
+    if data and data.get('results'):
+        _display_search_results(update, context, data['results'], media_type, mode='check')
+    else:
+        update.message.reply_text(get_text('no_results', lang).format(query=query))
 
-    def report(message):
-        """Função auxiliar para enviar mensagens de debug formatadas."""
-        context.bot.send_message(chat_id, f"🐛 {message}")
 
-    report(f"Iniciando debug para '{query}' ({media_type}).")
+@admin_required
+def debug_cmd(update: Update, context: CallbackContext):
+    if len(context.args) < 2:
+        update.message.reply_text("Usage: /debug <movie|show> <title>")
+        return
 
-    # Passo 1: Buscar no TMDB para obter dados consistentes
-    report("Buscando no TMDB...")
+    media_type, query = context.args[0].lower(), " ".join(context.args[1:])
+    lang = CONFIG.get('language')
+
+    if media_type not in ['movie', 'show']:
+        update.message.reply_text("The first argument must be 'movie' or 'show'.")
+        return
+
+    def report(key, **kwargs):
+        context.bot.send_message(update.effective_chat.id, f"🐛 {get_text(key, lang).format(**kwargs)}")
+
+    report('debug_start', query=query, media_type=media_type)
+    report('debug_tmdb_search')
     tmdb_key = CONFIG.get('tmdb', {}).get('api_key')
     if not tmdb_key:
-        report("ERRO: Chave de API do TMDB não configurada. Use /setup.")
+        report("ERROR: TMDB API Key not configured.")
         return
 
     internal_media_type = 'tv' if media_type == 'show' else 'movie'
     url = f"https://api.themoviedb.org/3/search/{internal_media_type}"
-    params = {'api_key': tmdb_key, 'query': query, 'language': 'pt-BR', 'include_adult': 'false'}
+    params = {'api_key': tmdb_key, 'query': query, 'language': lang, 'include_adult': 'false'}
     data = _api_get_request(url, params)
 
     if not data or not data.get('results'):
-        report(f"Nenhum resultado encontrado no TMDB para '{query}'. Debug encerrado.")
+        report('debug_tmdb_not_found', query=query)
         return
 
-    item = data['results'][0] # Pega o primeiro e mais provável resultado
-    is_movie = media_type == 'movie'
-    title = item.get('title') if is_movie else item.get('name')
-    release_date = item.get('release_date') if is_movie else item.get('first_air_date', '')
+    item = data['results'][0]
+    title = item.get('title', item.get('name'))
+    release_date = item.get('release_date', item.get('first_air_date', ''))
     year = int(release_date.split('-')[0]) if release_date else 0
     tmdb_id = item['id']
-    report(f"TMDB encontrou: '{title}' ({year}) [ID: {tmdb_id}]")
-    report("---")
+    report('debug_tmdb_found', title=title, year=year, tmdb_id=tmdb_id)
+    
+    report('debug_plex_check')
+    if (plex_result := check_plex_library(title, year)): report('debug_plex_success', plex_result=plex_result)
+    else: report('debug_plex_fail')
 
-    # Passo 2: Checar Plex
-    report("Verificando biblioteca do Plex...")
-    plex_result = check_plex_library(title, year)
-    if plex_result:
-        report(f"SUCESSO: {plex_result}")
+    report('debug_streaming_check')
+    if (streaming_result := check_streaming_services(tmdb_id, internal_media_type, title)): report('debug_streaming_success', streaming_result=streaming_result)
+    else: report('debug_streaming_fail')
+
+    report('debug_overseerr_check')
+    if (overseerr_result := check_overseerr(tmdb_id, internal_media_type)): report('debug_overseerr_success', overseerr_result=overseerr_result)
+    else: report('debug_overseerr_fail')
+
+    report('debug_end')
+
+def language_cmd(update: Update, context: CallbackContext):
+    """Displays buttons for the user to choose the language."""
+    lang = CONFIG.get('language')
+    keyboard = [
+        [InlineKeyboardButton("🇬🇧 English", callback_data='lang_en')],
+        [InlineKeyboardButton("🇧🇷 Português", callback_data='lang_pt')],
+        [InlineKeyboardButton("🇪🇸 Español", callback_data='lang_es')],
+    ]
+    update.message.reply_text(get_text('language_prompt', lang), reply_markup=InlineKeyboardMarkup(keyboard))
+
+def set_language_callback(update: Update, context: CallbackContext):
+    """Saves the new language choice."""
+    global CONFIG
+    query = update.callback_query
+    new_lang = query.data.split('_')[1]
+    
+    CONFIG['language'] = new_lang
+    save_config(CONFIG)
+    
+    lang_map = {'en': 'English', 'pt': 'Português', 'es': 'Español'}
+    query.edit_message_text(get_text('language_set', new_lang).format(lang_name=lang_map[new_lang]))
+
+# --- Setup Conversation Handlers ---
+def _send_setup_menu(update: Update, context: CallbackContext):
+    """Sends the main setup menu."""
+    lang = CONFIG.get('language')
+    keyboard = [
+        [
+            InlineKeyboardButton(get_text('setup_section_plex', lang), callback_data='cfg_plex'),
+            InlineKeyboardButton(get_text('setup_section_tmdb', lang), callback_data='cfg_tmdb')
+        ],
+        [
+            InlineKeyboardButton(get_text('setup_section_radarr', lang), callback_data='cfg_radarr'),
+            InlineKeyboardButton(get_text('setup_section_sonarr', lang), callback_data='cfg_sonarr')
+        ],
+        [
+            InlineKeyboardButton(get_text('setup_section_overseerr', lang), callback_data='cfg_overseerr'),
+            InlineKeyboardButton(get_text('setup_section_streaming', lang), callback_data='cfg_streaming')
+        ],
+        [InlineKeyboardButton(get_text('setup_all_button', lang), callback_data='cfg_all')],
+        [InlineKeyboardButton(get_text('setup_save_exit_button', lang), callback_data='cfg_save')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = get_text('setup_menu_prompt', lang)
+    
+    if update.callback_query:
+        query = update.callback_query
+        query.answer()
+        query.edit_message_text(text=message_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     else:
-        report("Não encontrado na biblioteca do Plex.")
-    report("---")
+        update.message.reply_text(text=message_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
-    # Passo 3: Checar Serviços de Streaming
-    report("Verificando serviços de streaming...")
-    streaming_result = check_streaming_services(tmdb_id, internal_media_type, title)
-    if streaming_result:
-        report(f"SUCESSO: {streaming_result}")
-    else:
-        report("Não encontrado em nenhum serviço de streaming assinado.")
-    report("---")
-
-    # Passo 4: Checar Overseerr
-    report("Verificando pedidos no Overseerr...")
-    overseerr_result = check_overseerr(tmdb_id, internal_media_type)
-    if overseerr_result:
-        report(f"SUCESSO: {overseerr_result}")
-    else:
-        report("Nenhum pedido encontrado no Overseerr.")
-    report("---")
-
-    report("Debug finalizado.")
-
-
-# --- Handlers da Conversa de Configuração ---
 @admin_required
 def setup_cmd(update: Update, context: CallbackContext) -> int:
-    """Inicia a conversa de configuração linear."""
-    # Uma cópia da configuração atual é armazenada temporariamente.
-    # Ela será modificada durante o setup e salva no final do processo.
-    context.user_data['setup_data'] = CONFIG.copy() 
-    update.message.reply_text(
-        "⚙️ Bem-vindo ao assistente de configuração!\n\n"
-        "Vamos configurar passo a passo. Use /cancelar a qualquer momento.\n\n"
-        "Primeiro, o Plex. Qual a URL do seu servidor? (ex: http://192.168.1.10:32400)"
-    )
-    return SETUP_PLEX_URL
+    """Entry point for the setup conversation. Displays the menu."""
+    context.user_data['setup_data'] = CONFIG.copy()
+    _send_setup_menu(update, context)
+    return SETUP_MENU
 
-def setup_plex_url(update: Update, context: CallbackContext) -> int:
+def setup_redirector(update: Update, context: CallbackContext) -> int:
+    """Handles button presses from the setup menu and redirects to the correct state."""
+    global CONFIG
+    query = update.callback_query
+    choice = query.data
+    lang = CONFIG.get('language')
+    
+    prompt_map = {
+        'cfg_plex': ("What is your Plex server's URL?", SETUP_PLEX_URL),
+        'cfg_tmdb': ("What is your TMDB API key (v3)?", SETUP_TMDB_API_KEY),
+        'cfg_streaming': ("Send your streaming service codes, comma-separated.", SETUP_SERVICES_CODES),
+        'cfg_radarr': ("What is Radarr's URL?", SETUP_RADARR_URL),
+        'cfg_sonarr': ("What is Sonarr's URL?", SETUP_SONARR_URL),
+        'cfg_overseerr': ("What is Overseerr's URL?", SETUP_OVERSEERR_URL),
+        'cfg_all': ("Starting full setup...\n\nFirst, Plex. What is your server's URL?", SETUP_PLEX_URL)
+    }
+
+    if choice == 'cfg_save':
+        CONFIG = context.user_data['setup_data']
+        if save_config(CONFIG):
+            query.edit_message_text(get_text('setup_saved', lang))
+        else:
+            query.edit_message_text(get_text('setup_error_saving', lang))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if choice in prompt_map:
+        prompt, next_state = prompt_map[choice]
+        context.user_data['setup_mode'] = 'all' if choice == 'cfg_all' else 'individual'
+        query.edit_message_text(text=prompt)
+        return next_state
+    
+    return SETUP_MENU
+
+def _return_to_menu_or_continue(update, context, next_state_for_all_mode, success_message):
+    """Helper to decide whether to continue the full setup or return to the menu."""
+    if context.user_data.get('setup_mode') == 'all':
+        update.message.reply_text(success_message)
+        return next_state_for_all_mode
+    else:
+        update.message.reply_text(f"✅ {success_message.split('!')[0]}!")
+        _send_setup_menu(update, context)
+        return SETUP_MENU
+
+def setup_plex_url(update: Update, context: CallbackContext):
     context.user_data['setup_data'].setdefault('plex', {})['url'] = update.message.text.strip()
-    update.message.reply_text("Qual o seu Token do Plex (X-Plex-Token)?")
+    update.message.reply_text("What is your Plex Token (X-Plex-Token)?")
     return SETUP_PLEX_TOKEN
 
-def setup_plex_token(update: Update, context: CallbackContext) -> int:
+def setup_plex_token(update: Update, context: CallbackContext):
     context.user_data['setup_data']['plex']['token'] = update.message.text.strip()
-    update.message.reply_text("✅ Plex configurado!\n\nAgora o TMDB. Qual sua chave de API (v3)?")
-    return SETUP_TMDB_API_KEY
-
-# ... (outros passos de configuração de forma similar)
+    return _return_to_menu_or_continue(update, context, SETUP_TMDB_API_KEY, "Plex configured!\n\nNow, for TMDB. What is your API key (v3)?")
 
 def setup_tmdb_api_key(update, context):
     context.user_data['setup_data'].setdefault('tmdb', {})['api_key'] = update.message.text.strip()
-    update.message.reply_text("Qual sua região para streaming? (ex: BR, US, PT)")
+    update.message.reply_text("What is your streaming region? (e.g., US, BR, PT)")
     return SETUP_TMDB_REGION
 
 def setup_tmdb_region(update, context):
     context.user_data['setup_data']['tmdb']['region'] = update.message.text.strip().upper()
-    update.message.reply_text("✅ TMDB configurado!\n\nQuais serviços de streaming você assina? Envie os códigos separados por vírgula (ex: nfx,dnp,max).")
-    return SETUP_SERVICES_CODES
+    return _return_to_menu_or_continue(update, context, SETUP_SERVICES_CODES, "TMDB configured!\n\nWhich streaming services do you subscribe to?")
 
 def setup_services_codes(update, context):
-    codes = [c.strip().lower() for c in update.message.text.split(',')]
-    context.user_data['setup_data']['subscribed_services'] = codes
-    update.message.reply_text(f"✅ Serviços definidos!\n\nAgora o Radarr (para filmes). Qual a URL?")
-    return SETUP_RADARR_URL
+    context.user_data['setup_data']['subscribed_services'] = [c.strip().lower() for c in update.message.text.split(',')]
+    return _return_to_menu_or_continue(update, context, SETUP_RADARR_URL, "Services set!\n\nNow for Radarr. What is the URL?")
 
-def setup_radarr_url(update: Update, context: CallbackContext) -> int:
+def setup_radarr_url(update, context):
     context.user_data['setup_data'].setdefault('radarr', {})['url'] = update.message.text.strip()
-    update.message.reply_text("Qual a Chave de API (API Key) do Radarr?")
+    update.message.reply_text("What is the Radarr API Key?")
     return SETUP_RADARR_API_KEY
-    
-# ... continue a cadeia para Radarr, Sonarr, Overseerr ...
 
 def setup_radarr_api_key(update, context):
     context.user_data['setup_data']['radarr']['api_key'] = update.message.text.strip()
-    update.message.reply_text("Qual o ID do Perfil de Qualidade do Radarr?")
+    update.message.reply_text("What is the Radarr Quality Profile ID?")
     return SETUP_RADARR_QUALITY_ID
 
 def setup_radarr_quality_id(update, context):
     context.user_data['setup_data']['radarr']['quality_profile_id'] = update.message.text.strip()
-    update.message.reply_text("Qual o Caminho da Pasta Raiz (Root Folder Path) do Radarr?")
+    update.message.reply_text("What is the Radarr Root Folder Path?")
     return SETUP_RADARR_ROOT_FOLDER
 
 def setup_radarr_root_folder(update, context):
     context.user_data['setup_data']['radarr']['root_folder_path'] = update.message.text.strip()
-    update.message.reply_text("✅ Radarr configurado!\n\nAgora o Sonarr (para séries). Qual a URL?")
-    return SETUP_SONARR_URL
+    return _return_to_menu_or_continue(update, context, SETUP_SONARR_URL, "Radarr configured!\n\nNow for Sonarr. What is the URL?")
 
 def setup_sonarr_url(update, context):
     context.user_data['setup_data'].setdefault('sonarr', {})['url'] = update.message.text.strip()
-    update.message.reply_text("Qual a Chave de API (API Key) do Sonarr?")
+    update.message.reply_text("What is the Sonarr API Key?")
     return SETUP_SONARR_API_KEY
-    
+
 def setup_sonarr_api_key(update, context):
     context.user_data['setup_data']['sonarr']['api_key'] = update.message.text.strip()
-    update.message.reply_text("Qual o ID do Perfil de Qualidade do Sonarr?")
+    update.message.reply_text("What is the Sonarr Quality Profile ID?")
     return SETUP_SONARR_QUALITY_ID
 
 def setup_sonarr_quality_id(update, context):
     context.user_data['setup_data']['sonarr']['quality_profile_id'] = update.message.text.strip()
-    update.message.reply_text("Qual o ID do Perfil de Linguagem do Sonarr?")
+    update.message.reply_text("What is the Sonarr Language Profile ID?")
     return SETUP_SONARR_LANG_ID
-    
+
 def setup_sonarr_lang_id(update, context):
     context.user_data['setup_data']['sonarr']['language_profile_id'] = update.message.text.strip()
-    update.message.reply_text("Qual o Caminho da Pasta Raiz (Root Folder Path) do Sonarr?")
+    update.message.reply_text("What is the Sonarr Root Folder Path?")
     return SETUP_SONARR_ROOT_FOLDER
 
 def setup_sonarr_root_folder(update, context):
     context.user_data['setup_data']['sonarr']['root_folder_path'] = update.message.text.strip()
-    update.message.reply_text("✅ Sonarr configurado!\n\nFinalmente, o Overseerr. Qual a URL?")
-    return SETUP_OVERSEERR_URL
-    
+    return _return_to_menu_or_continue(update, context, SETUP_OVERSEERR_URL, "Sonarr configured!\n\nFinally, Overseerr. What is the URL?")
+
 def setup_overseerr_url(update, context):
     context.user_data['setup_data'].setdefault('overseerr', {})['url'] = update.message.text.strip()
-    update.message.reply_text("Qual a Chave de API (API Key) do Overseerr?")
+    update.message.reply_text("What is the Overseerr API Key?")
     return SETUP_OVERSEERR_API_KEY
-    
+
 def setup_overseerr_api_key(update, context):
-    context.user_data['setup_data']['overseerr']['api_key'] = update.message.text.strip()
-    update.message.reply_text("✅ Overseerr configurado!")
-    
-    # Este é o passo final da configuração.
-    # Os dados temporários são agora salvos no arquivo config.json.
+    # This is the final step in the "all" flow, so save and end
     global CONFIG
+    context.user_data['setup_data']['overseerr']['api_key'] = update.message.text.strip()
+    update.message.reply_text("✅ Overseerr configured!")
+    
     CONFIG = context.user_data['setup_data']
     if save_config(CONFIG):
-        update.message.reply_text("💾 Todas as configurações foram salvas com sucesso! O bot está pronto.")
+        update.message.reply_text(get_text('setup_saved', CONFIG.get('language')))
     else:
-        update.message.reply_text("❌ Erro ao salvar o arquivo de configuração. Verifique os logs.")
-        
+        update.message.reply_text(get_text('setup_error_saving', CONFIG.get('language')))
     context.user_data.clear()
     return ConversationHandler.END
-
 
 def cancel_setup(update: Update, context: CallbackContext) -> int:
-    """Cancela a conversa de configuração."""
-    update.message.reply_text("⚙️ Configuração cancelada.")
+    update.message.reply_text(get_text('setup_cancelled', CONFIG.get('language')))
     context.user_data.clear()
     return ConversationHandler.END
 
-# --- Função Principal ---
+
+# --- Friends Management Handlers ---
+
+def _get_friends_menu(lang: str):
+    """Generates the keyboard for the friends menu."""
+    keyboard = [
+        [InlineKeyboardButton(get_text('friends_button_add', lang), callback_data='friend_add')],
+        [InlineKeyboardButton(get_text('friends_button_remove', lang), callback_data='friend_remove')],
+        [InlineKeyboardButton(get_text('friends_button_list', lang), callback_data='friend_list')],
+        [InlineKeyboardButton(get_text('friends_button_back', lang), callback_data='friend_back')],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+@admin_required
+def friends_cmd(update: Update, context: CallbackContext) -> int:
+    """Entry point for the friends management conversation."""
+    lang = CONFIG.get('language')
+    update.message.reply_text(
+        get_text('friends_menu_prompt', lang),
+        reply_markup=_get_friends_menu(lang),
+        parse_mode=ParseMode.MARKDOWN
+    )
+    return FRIENDS_MENU
+
+def friends_menu_logic(update: Update, context: CallbackContext) -> int:
+    """Handles button presses from the main friends menu."""
+    query = update.callback_query
+    query.answer()
+    action = query.data
+    lang = CONFIG.get('language')
+
+    if action == 'friend_add':
+        query.edit_message_text(get_text('friends_add_prompt', lang))
+        return AWAIT_FRIEND_NAME_TO_ADD
+    
+    if action == 'friend_list':
+        friends = CONFIG.get('friend_user_ids', {})
+        if not friends:
+            query.edit_message_text(get_text('friends_no_friends', lang), reply_markup=_get_friends_menu(lang))
+            return FRIENDS_MENU
+        
+        message = get_text('friends_list_title', lang) + "\n\n"
+        message += "\n".join([get_text('friends_list_format', lang).format(name=name) for name in friends.values()])
+        query.edit_message_text(message, reply_markup=_get_friends_menu(lang))
+        return FRIENDS_MENU
+        
+    if action == 'friend_remove':
+        friends = CONFIG.get('friend_user_ids', {})
+        if not friends:
+            query.edit_message_text(get_text('friends_no_friends_to_remove', lang), reply_markup=_get_friends_menu(lang))
+            return FRIENDS_MENU
+        
+        keyboard = [[InlineKeyboardButton(name, callback_data=f"del_friend_{user_id}")] for user_id, name in friends.items()]
+        keyboard.append([InlineKeyboardButton(get_text('friends_button_back', lang), callback_data='friend_back_to_menu')])
+        query.edit_message_text(get_text('friends_remove_prompt', lang), reply_markup=InlineKeyboardMarkup(keyboard))
+        return AWAIT_FRIEND_TO_REMOVE
+        
+    if action == 'friend_back':
+        query.edit_message_text("Exited friends menu.")
+        return ConversationHandler.END
+
+    return FRIENDS_MENU
+
+def add_friend_get_name(update: Update, context: CallbackContext) -> int:
+    """Receives the name for a new friend and generates their code."""
+    global CONFIG
+    lang = CONFIG.get('language')
+    name = update.message.text.strip()
+    code = secrets.token_hex(8)
+    expires = (datetime.now() + timedelta(days=1)).isoformat()
+    
+    CONFIG.setdefault('friend_codes', {})[code] = {'name': name, 'expires': expires}
+    save_config(CONFIG)
+    
+    update.message.reply_text(get_text('new_friend_code', lang).format(name=name, code=code), parse_mode=ParseMode.MARKDOWN)
+    return ConversationHandler.END
+
+def remove_friend_confirm(update: Update, context: CallbackContext) -> int:
+    """Removes a selected friend from the config."""
+    global CONFIG
+    query = update.callback_query
+    query.answer()
+    lang = CONFIG.get('language')
+    
+    if query.data == 'friend_back_to_menu':
+        query.edit_message_text(get_text('friends_menu_prompt', lang), reply_markup=_get_friends_menu(lang), parse_mode=ParseMode.MARKDOWN)
+        return FRIENDS_MENU
+
+    user_id_to_remove = query.data.split('_')[-1]
+    
+    if user_id_to_remove in CONFIG.get('friend_user_ids', {}):
+        removed_name = CONFIG['friend_user_ids'].pop(user_id_to_remove)
+        save_config(CONFIG)
+        query.edit_message_text(get_text('friends_friend_removed', lang).format(name=removed_name))
+    
+    # Go back to the main friends menu
+    context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=get_text('friends_menu_prompt', lang),
+        reply_markup=_get_friends_menu(lang),
+        parse_mode=ParseMode.MARKDOWN
+    )
+    return FRIENDS_MENU
+
+
+# --- Main Function ---
 def main() -> None:
-    """Inicia o bot e configura os handlers."""
     bot_token = os.getenv("BOT_TOKEN")
     if not bot_token:
-        logger.critical("Variável de ambiente BOT_TOKEN não definida. O bot não pode iniciar.")
+        logger.critical("BOT_TOKEN environment variable not set.")
         return
 
-    updater = Updater(bot_token)
+    # Initialize the updater without persistence to ensure sessions are not saved.
+    updater = Updater(bot_token, persistence=None, use_context=True)
     dispatcher = updater.dispatcher
 
-    # Handler para autenticação de admin e amigos
-    auth_conv_handler = ConversationHandler(
+    auth_conv = ConversationHandler(
         entry_points=[CommandHandler('start', start_cmd)],
         states={
             ASK_FRIEND_CODE: [MessageHandler(Filters.text & ~Filters.command, ask_friend_code_handler)],
             ASK_ADMIN_USER: [MessageHandler(Filters.text & ~Filters.command, ask_admin_user_handler)],
             ASK_ADMIN_PASS: [MessageHandler(Filters.text & ~Filters.command, ask_admin_pass_handler)],
         },
-        fallbacks=[CommandHandler('cancelar', cancel_auth)],
-        conversation_timeout=300
+        fallbacks=[CommandHandler('cancel', cancel_auth)],
     )
     
-    # Handler para a configuração passo a passo
-    setup_conv_handler = ConversationHandler(
+    setup_conv = ConversationHandler(
         entry_points=[CommandHandler('setup', setup_cmd)],
         states={
+            SETUP_MENU: [CallbackQueryHandler(setup_redirector, pattern='^cfg_')],
             SETUP_PLEX_URL: [MessageHandler(Filters.text & ~Filters.command, setup_plex_url)],
             SETUP_PLEX_TOKEN: [MessageHandler(Filters.text & ~Filters.command, setup_plex_token)],
             SETUP_TMDB_API_KEY: [MessageHandler(Filters.text & ~Filters.command, setup_tmdb_api_key)],
@@ -858,21 +1226,32 @@ def main() -> None:
             SETUP_OVERSEERR_URL: [MessageHandler(Filters.text & ~Filters.command, setup_overseerr_url)],
             SETUP_OVERSEERR_API_KEY: [MessageHandler(Filters.text & ~Filters.command, setup_overseerr_api_key)],
         },
-        fallbacks=[CommandHandler('cancelar', cancel_setup)],
-        conversation_timeout=600
+        fallbacks=[CommandHandler('cancel', cancel_setup)],
+    )
+    
+    friends_conv = ConversationHandler(
+        entry_points=[CommandHandler('friends', friends_cmd)],
+        states={
+            FRIENDS_MENU: [CallbackQueryHandler(friends_menu_logic, pattern='^friend_')],
+            AWAIT_FRIEND_NAME_TO_ADD: [MessageHandler(Filters.text & ~Filters.command, add_friend_get_name)],
+            AWAIT_FRIEND_TO_REMOVE: [CallbackQueryHandler(remove_friend_confirm, pattern='^del_friend_|^friend_back_to_menu$')],
+        },
+        fallbacks=[CommandHandler('cancel', cancel_setup)]
     )
 
-    dispatcher.add_handler(auth_conv_handler)
-    dispatcher.add_handler(setup_conv_handler)
+    dispatcher.add_handler(auth_conv)
+    dispatcher.add_handler(setup_conv)
+    dispatcher.add_handler(friends_conv)
     dispatcher.add_handler(CommandHandler("help", help_cmd))
-    dispatcher.add_handler(CommandHandler("addfriend", addfriend_cmd))
     dispatcher.add_handler(CommandHandler("debug", debug_cmd))
+    dispatcher.add_handler(CommandHandler("language", language_cmd))
+    dispatcher.add_handler(CommandHandler("check", check_cmd))
     dispatcher.add_handler(CommandHandler("movie", lambda u, c: search_cmd(u, c, 'movie')))
     dispatcher.add_handler(CommandHandler("show", lambda u, c: search_cmd(u, c, 'show')))
     dispatcher.add_handler(CallbackQueryHandler(button_callback_handler))
 
     updater.start_polling()
-    logger.info("Bot iniciado e escutando por comandos...")
+    logger.info("Bot started and listening for commands...")
     updater.idle()
 
 if __name__ == '__main__':
