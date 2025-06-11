@@ -1,17 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-Searcharr Plus - A robust media management bot for Telegram.
-
-This script implements a Telegram bot to search for movies and series,
-check their availability on Plex, streaming services, and Overseerr,
-and add them to Radarr or Sonarr if they are not available.
-
-Stable version combining and fixing issues from previous versions,
-with support for multiple languages and enhanced configuration.
-"""
-
 import logging
 import os
 import json
@@ -70,44 +56,49 @@ KEYWORD_MAP = {
     'sho': ('showtime',), 'glb': ('globoplay',), 'sp': ('star+',)
 }
 
-# ConversationHandler states
+# ConversationHandler states - Corrected range
 (
     # Auth
-    ASK_FRIEND_CODE, ASK_ADMIN_USER, ASK_ADMIN_PASS,
+    AWAIT_LOGIN_USER, AWAIT_LOGIN_PASSWORD,
     # Setup
     SETUP_MENU,
     SETUP_PLEX_URL, SETUP_PLEX_TOKEN,
     SETUP_TMDB_API_KEY, SETUP_TMDB_REGION,
     SETUP_SERVICES_CODES,
     SETUP_RADARR_URL, SETUP_RADARR_API_KEY, SETUP_RADARR_QUALITY_ID, SETUP_RADARR_ROOT_FOLDER,
+    AWAIT_RADARR_4K_CHOICE, SETUP_RADARR_QUALITY_ID_4K, SETUP_RADARR_ROOT_FOLDER_4K,
     SETUP_SONARR_URL, SETUP_SONARR_API_KEY, SETUP_SONARR_QUALITY_ID, SETUP_SONARR_LANG_ID, SETUP_SONARR_ROOT_FOLDER,
+    AWAIT_SONARR_4K_CHOICE, SETUP_SONARR_QUALITY_ID_4K, SETUP_SONARR_ROOT_FOLDER_4K,
     SETUP_OVERSEERR_URL, SETUP_OVERSEERR_API_KEY,
     # Friends
     FRIENDS_MENU, AWAIT_FRIEND_NAME_TO_ADD, AWAIT_FRIEND_TO_REMOVE
-) = range(23)
+) = range(28)
 
 
 # --- Translations ---
 translations = {
     'en': {
-        "welcome_admin": "✅ Authenticated as Admin. Welcome back!",
-        "welcome_friend": "✅ Authenticated as Friend. Welcome back!",
-        "auth_prompt": "👋 Welcome! If you have a friend code, please enter it now. Or type /cancel.",
-        "auth_initial_user": "🔑 Welcome to the initial setup! Please enter the admin username (defined in .env):",
-        "auth_initial_pass": "🔑 Great. Now, please enter the admin password:",
-        "auth_user_incorrect": "❌ Incorrect username. Try again or ask the bot owner to check the .env file.",
-        "auth_pass_incorrect": "❌ Incorrect password. Please try again.",
-        "auth_admin_set": "✅ Administrator set successfully! Welcome.\n\nNow, let's set up the services. Use the /setup command.",
+        "start_message": "👋 Welcome! Please use /login (admin) or /auth `<code>` (friend) to get started.",
+        "login_prompt_user": "🔑 Please enter the admin username:",
+        "login_prompt_pass": "🔑 Please enter the password:",
+        "login_success": "✅ Login successful! Welcome back.",
+        "login_fail": "❌ Incorrect credentials or you are not the designated admin.",
+        "login_already_done": "✅ You are already logged in.",
+        "logout_success": "✅ You have been successfully logged out.",
+        "auth_required": "🚫 You need to be authenticated. Please use /login or /auth.",
+        "unauthenticated_message": "You are not logged in. Please use /login or send your friend code with /auth `<code>`.",
+        "admin_required": "⛔ This command is for administrators only.",
         "auth_friend_code_invalid": "❌ Invalid or expired friend code. Try again or type /cancel.",
         "auth_friend_code_accepted": "✅ Friend code accepted! Welcome.",
         "auth_cancelled": "Authentication canceled.",
         "new_friend_code": "🔑 New single-use friend code for '{name}' generated. It is valid for 24 hours:\n\n`{code}`",
-        "help_admin": "👑 *Admin Commands*\n\n/movie <title> - Search and add a movie.\n/show <title> - Search and add a series.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/friends - Manage friend access.\n/setup - (Re)configure the bot.\n/language - Change the bot's language.\n/debug <movie|show> <title> - Diagnose the check for a media.\n/help - Show this message.",
+        "help_admin": "👑 *Admin Commands*\n\n/movie <title> - Search and add a movie.\n/movie4k <title> - Add a movie in 4K.\n/show <title> - Search and add a series.\n/show4k <title> - Add a series in 4K.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/friends - Manage friend access.\n/setup - (Re)configure the bot.\n/language - Change the bot's language.\n/streaming - List available streaming codes.\n/debug <movie|show> <title> - Diagnose the check for a media.\n/logout - End your session.\n/help - Show this message.",
         "help_friend": "👥 *Friend Commands*\n\n/movie <title> - Check availability of a movie.\n/show <title> - Check availability of a series.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/language - Change the bot's language.\n/help - Show this message.",
         "no_results": "🤷 No results found for '{query}'. Try being more specific.",
         "provide_title": "Please provide a title. Usage: /{command} <title>",
         "check_usage": "Usage: /check <movie|show> <title>",
         "add_button": "➕ Add",
+        "add_button_4k": "➕ Add 4K",
         "check_button": "🔎 Check Status",
         "nav_prev": "⬅️ Previous",
         "nav_next": "Next ➡️",
@@ -127,10 +118,15 @@ translations = {
         "setup_cancelled": "⚙️ Setup canceled.",
         "setup_saved": "💾 All settings have been successfully saved! The bot is ready.",
         "setup_error_saving": "❌ Error saving the configuration file. Check the logs.",
+        "setup_ask_4k": "Do you want to configure a separate 4K profile for {service}? (yes/no)",
+        "setup_4k_quality_prompt": "What is the 4K Quality Profile ID for {service}?",
+        "setup_4k_folder_prompt": "What is the 4K Root Folder Path for {service}?",
+        "setup_4k_profile_not_configured": "⚠️ {service} 4K profile is not configured. Please use /setup.",
         "language_prompt": "Please choose your language:",
         "language_set": "✅ Language set to {lang_name}.",
         "plex_found": "✅ '{title}' is already available on your Plex: {server_name}.",
         "streaming_found": "📺 '{title}' is available for streaming on: {services_str}.",
+        "streaming_list_header": "📜 *Available Streaming Service Codes*\n\n",
         "overseerr_found": "⏳ '{title}' has already been requested on Overseerr and is pending.",
         "service_add_success": "✅ '{title}' has been added to {service_name} and the search has started.",
         "service_add_exists": "ℹ️ '{title}' already exists in {service_name}.",
@@ -165,24 +161,27 @@ translations = {
         "debug_end": "Debug finished.",
     },
     'pt': {
-        "welcome_admin": "✅ Autenticado como Admin. Bem-vindo de volta!",
-        "welcome_friend": "✅ Autenticado como Amigo. Bem-vindo de volta!",
-        "auth_prompt": "👋 Bem-vindo! Se você tem um código de amigo, por favor, insira-o agora. Ou digite /cancelar.",
-        "auth_initial_user": "🔑 Bem-vindo à configuração inicial! Por favor, insira o nome de usuário do admin (definido em .env):",
-        "auth_initial_pass": "🔑 Ótimo. Agora, por favor, insira a senha do admin:",
-        "auth_user_incorrect": "❌ Nome de usuário incorreto. Tente novamente ou peça para o dono do bot verificar o arquivo .env.",
-        "auth_pass_incorrect": "❌ Senha incorreta. Tente novamente.",
-        "auth_admin_set": "✅ Administrador definido com sucesso! Bem-vindo.\n\nAgora, vamos configurar os serviços. Use o comando /setup.",
+        "start_message": "👋 Bem-vindo! Por favor, use /login (admin) ou /auth `<code>` (amigo) para começar.",
+        "login_prompt_user": "🔑 Por favor, digite o nome de usuário do admin:",
+        "login_prompt_pass": "🔑 Por favor, digite a senha:",
+        "login_success": "✅ Login realizado com sucesso! Bem-vindo(a) de volta.",
+        "login_fail": "❌ Credenciais incorretas ou você não é o admin designado.",
+        "login_already_done": "✅ Você já está logado.",
+        "logout_success": "✅ Você foi desconectado com sucesso.",
+        "auth_required": "🚫 Você precisa estar autenticado. Por favor, use /login ou /auth.",
+        "unauthenticated_message": "Você não está logado. Por favor, use /login ou envie seu código de amigo com /auth `<code>`.",
+        "admin_required": "⛔ Este comando é apenas para administradores.",
         "auth_friend_code_invalid": "❌ Código de amigo inválido ou expirado. Tente novamente ou digite /cancelar.",
         "auth_friend_code_accepted": "✅ Código de amigo aceito! Bem-vindo(a).",
         "auth_cancelled": "Autenticação cancelada.",
         "new_friend_code": "🔑 Novo código de amigo de uso único para '{name}' gerado. É válido por 24 horas:\n\n`{code}`",
-        "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Procurar e adicionar um filme.\n/show <título> - Procurar e adicionar uma série.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/friends - Gerenciar amigos.\n/setup - (Re)configurar o bot.\n/language - Alterar o idioma do bot.\n/debug <movie|show> <título> - Diagnosticar a verificação de uma mídia.\n/help - Mostrar esta mensagem.",
+        "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Procurar e adicionar um filme.\n/movie4k <título> - Adicionar um filme em 4K.\n/show <título> - Procurar e adicionar uma série.\n/show4k <título> - Adicionar uma série em 4K.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/friends - Gerenciar amigos.\n/setup - (Re)configurar o bot.\n/language - Alterar o idioma do bot.\n/streaming - Listar códigos de streaming disponíveis.\n/debug <movie|show> <título> - Diagnosticar a verificação de uma mídia.\n/logout - Encerrar sua sessão.\n/help - Mostrar esta mensagem.",
         "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Verificar disponibilidade de um filme.\n/show <título> - Verificar disponibilidade de uma série.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/language - Alterar o idioma do bot.\n/help - Mostrar esta mensagem.",
         "no_results": "🤷 Nenhum resultado encontrado para '{query}'. Tente ser mais específico.",
         "provide_title": "Por favor, forneça um título. Uso: /{command} <título>",
         "check_usage": "Uso: /check <movie|show> <título>",
         "add_button": "➕ Adicionar",
+        "add_button_4k": "➕ Adicionar 4K",
         "check_button": "🔎 Checar Status",
         "nav_prev": "⬅️ Anterior",
         "nav_next": "Próximo ➡️",
@@ -202,10 +201,15 @@ translations = {
         "setup_cancelled": "⚙️ Configuração cancelada.",
         "setup_saved": "💾 Todas as configurações foram salvas com sucesso! O bot está pronto.",
         "setup_error_saving": "❌ Erro ao salvar o arquivo de configuração. Verifique os logs.",
+        "setup_ask_4k": "Você deseja configurar um perfil 4K separado para o {service}? (sim/não)",
+        "setup_4k_quality_prompt": "Qual o ID do Perfil de Qualidade 4K do {service}?",
+        "setup_4k_folder_prompt": "Qual o Caminho da Pasta Raiz 4K do {service}?",
+        "setup_4k_profile_not_configured": "⚠️ O perfil 4K do {service} não está configurado. Por favor, use o /setup.",
         "language_prompt": "Por favor, escolha o seu idioma:",
         "language_set": "✅ Idioma alterado para {lang_name}.",
         "plex_found": "✅ '{title}' já está disponível no seu Plex: {server_name}.",
         "streaming_found": "📺 '{title}' está disponível para streaming em: {services_str}.",
+        "streaming_list_header": "📜 *Códigos de Serviços de Streaming Disponíveis*\n\n",
         "overseerr_found": "⏳ '{title}' já foi pedido no Overseerr e está pendente.",
         "service_add_success": "✅ '{title}' foi adicionado ao {service_name} e a busca foi iniciada.",
         "service_add_exists": "ℹ️ '{title}' já existe no {service_name}.",
@@ -240,24 +244,27 @@ translations = {
         "debug_end": "Debug finalizado.",
     },
     'es': {
-        "welcome_admin": "✅ Autenticado como Admin. ¡Bienvenido de nuevo!",
-        "welcome_friend": "✅ Autenticado como Amigo. ¡Bienvenido de nuevo!",
-        "auth_prompt": "👋 ¡Bienvenido! Si tienes un código de amigo, ingrésalo ahora. O escribe /cancelar.",
-        "auth_initial_user": "🔑 ¡Bienvenido a la configuración inicial! Por favor, introduce el nombre de usuario del admin (definido en .env):",
-        "auth_initial_pass": "🔑 Genial. Ahora, por favor, introduce la contraseña del admin:",
-        "auth_user_incorrect": "❌ Nombre de usuario incorrecto. Inténtalo de nuevo o pide al dueño del bot que verifique el archivo .env.",
-        "auth_pass_incorrect": "❌ Contraseña incorrecta. Por favor, inténtalo de nuevo.",
-        "auth_admin_set": "✅ ¡Administrador configurado con éxito! Bienvenido.\n\nAhora, vamos a configurar los servicios. Usa el comando /setup.",
+        "start_message": "👋 ¡Bienvenido! Por favor, usa /login (admin) o /auth `<code>` (amigo) para empezar.",
+        "login_prompt_user": "🔑 Por favor, introduce el nombre de usuario del admin:",
+        "login_prompt_pass": "🔑 Por favor, introduce la contraseña:",
+        "login_success": "✅ ¡Inicio de sesión exitoso! Bienvenido de nuevo.",
+        "login_fail": "❌ Credenciales incorrectas o no eres el admin designado.",
+        "login_already_done": "✅ Ya has iniciado sesión.",
+        "logout_success": "✅ Has cerrado la sesión correctamente.",
+        "auth_required": "🚫 Necesitas estar autenticado. Por favor, usa /login o /auth.",
+        "unauthenticated_message": "No estás conectado. Por favor, usa /login o envía tu código de amigo con /auth `<code>`.",
+        "admin_required": "⛔ Este comando es solo para administradores.",
         "auth_friend_code_invalid": "❌ Código de amigo inválido o caducado. Inténtalo de nuevo o escribe /cancelar.",
         "auth_friend_code_accepted": "✅ ¡Código de amigo aceptado! Bienvenido.",
         "auth_cancelled": "Autenticación cancelada.",
         "new_friend_code": "🔑 Nuevo código de amigo de un solo uso para '{name}' generado. Es válido por 24 horas:\n\n`{code}`",
-        "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Buscar y añadir una película.\n/show <título> - Buscar y añadir una serie.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/friends - Gestionar amigos.\n/setup - (Re)configurar el bot.\n/language - Cambiar el idioma del bot.\n/debug <movie|show> <título> - Diagnosticar la verificación de un medio.\n/help - Mostrar este mensaje.",
+        "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Buscar y añadir una película.\n/movie4k <título> - Añadir una película en 4K.\n/show <título> - Buscar y añadir una serie.\n/show4k <título> - Añadir una serie en 4K.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/friends - Gestionar amigos.\n/setup - (Re)configurar el bot.\n/language - Cambiar el idioma del bot.\n/streaming - Listar códigos de streaming disponibles.\n/debug <movie|show> <título> - Diagnosticar la verificación de un medio.\n/logout - Cerrar tu sesión.\n/help - Mostrar este mensaje.",
         "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Comprobar la disponibilidad de una película.\n/show <título> - Comprobar la disponibilidad de una serie.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/language - Cambiar el idioma del bot.\n/help - Mostrar este mensaje.",
         "no_results": "🤷 No se encontraron resultados para '{query}'. Intenta ser más específico.",
         "provide_title": "Por favor, proporciona un título. Uso: /{command} <título>",
         "check_usage": "Uso: /check <movie|show> <título>",
         "add_button": "➕ Añadir",
+        "add_button_4k": "➕ Añadir 4K",
         "check_button": "🔎 Comprobar Estado",
         "nav_prev": "⬅️ Anterior",
         "nav_next": "Siguiente ➡️",
@@ -277,10 +284,15 @@ translations = {
         "setup_cancelled": "⚙️ Configuración cancelada.",
         "setup_saved": "💾 ¡Todos los ajustes se han guardado con éxito! El bot está listo.",
         "setup_error_saving": "❌ Error al guardar el archivo de configuración. Comprueba los logs.",
+        "setup_ask_4k": "¿Deseas configurar un perfil 4K separado para {service}? (si/no)",
+        "setup_4k_quality_prompt": "¿Cuál es el ID del Perfil de Calidad 4K de {service}?",
+        "setup_4k_folder_prompt": "¿Cuál es la Ruta de la Carpeta Raíz 4K de {service}?",
+        "setup_4k_profile_not_configured": "⚠️ El perfil 4K de {service} no está configurado. Por favor, usa /setup.",
         "language_prompt": "Por favor, elige tu idioma:",
         "language_set": "✅ Idioma cambiado a {lang_name}.",
         "plex_found": "✅ '{title}' ya está disponible en tu Plex: {server_name}.",
         "streaming_found": "📺 '{title}' está disponible para streaming en: {services_str}.",
+        "streaming_list_header": "📜 *Códigos de Servicios de Streaming Disponibles*\n\n",
         "overseerr_found": "⏳ '{title}' ya ha sido solicitado en Overseerr y está pendiente.",
         "service_add_success": "✅ '{title}' ha sido añadido a {service_name} y la búsqueda ha comenzado.",
         "service_add_exists": "ℹ️ '{title}' ya existe en {service_name}.",
@@ -334,8 +346,14 @@ def load_config():
             "language": "en", # Default to English
             "plex": {"url": "", "token": ""},
             "tmdb": {"api_key": "", "region": "BR"},
-            "radarr": {"url": "", "api_key": "", "quality_profile_id": "1", "root_folder_path": ""},
-            "sonarr": {"url": "", "api_key": "", "quality_profile_id": "1", "language_profile_id": "1", "root_folder_path": ""},
+            "radarr": {
+                "url": "", "api_key": "", "quality_profile_id": "1", "root_folder_path": "",
+                "quality_profile_id_4k": "", "root_folder_path_4k": ""
+            },
+            "sonarr": {
+                "url": "", "api_key": "", "quality_profile_id": "1", "language_profile_id": "1", "root_folder_path": "",
+                "quality_profile_id_4k": "", "root_folder_path_4k": ""
+            },
             "overseerr": {"url": "", "api_key": ""},
             "subscribed_services": []
         }
@@ -345,8 +363,14 @@ def load_config():
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             config = json.load(f)
-            if 'language' not in config:
-                config['language'] = 'en' # Ensure the language key exists
+            # Ensure new keys exist for backward compatibility
+            if 'language' not in config: config['language'] = 'en'
+            if 'quality_profile_id_4k' not in config.get('radarr', {}):
+                config.setdefault('radarr', {})['quality_profile_id_4k'] = ""
+                config.setdefault('radarr', {})['root_folder_path_4k'] = ""
+            if 'quality_profile_id_4k' not in config.get('sonarr', {}):
+                config.setdefault('sonarr', {})['quality_profile_id_4k'] = ""
+                config.setdefault('sonarr', {})['root_folder_path_4k'] = ""
             return config
     except (json.JSONDecodeError, IOError) as e:
         logger.error(f"Error loading configuration file: {e}")
@@ -374,8 +398,8 @@ def is_admin(user_id):
 def admin_required(func):
     @wraps(func)
     def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
-        if not is_admin(update.effective_user.id):
-            update.message.reply_text("⛔ This command is for administrators only.")
+        if context.user_data.get('role') != 'admin':
+            update.message.reply_text(get_text("admin_required", CONFIG.get('language')))
             return
         return func(update, context, *args, **kwargs)
     return wrapped
@@ -383,10 +407,9 @@ def admin_required(func):
 def auth_required(func):
     @wraps(func)
     def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
-        user_id = update.effective_user.id
-        if not (is_admin(user_id) or str(user_id) in CONFIG.get("friend_user_ids", {})):
+        if not context.user_data.get('role'):
             message = update.message or update.callback_query.message
-            message.reply_text("🚫 You need to be authenticated. Please use /start.")
+            message.reply_text(get_text("auth_required", CONFIG.get('language')))
             return
         return func(update, context, *args, **kwargs)
     return wrapped
@@ -506,11 +529,18 @@ def check_overseerr(tmdb_id, media_type):
                 return get_text('overseerr_found', lang).format(title=title)
     return None
 
-def add_to_arr_service(media_info, service_name):
+def add_to_arr_service(media_info, service_name, is_4k=False):
     config = CONFIG.get(service_name.lower())
     lang = CONFIG.get('language')
-    if not all(config.get(k) for k in ['url', 'api_key', 'quality_profile_id', 'root_folder_path']):
-        return f"⚠️ {service_name.capitalize()} is not fully configured."
+
+    quality_key = 'quality_profile_id_4k' if is_4k else 'quality_profile_id'
+    folder_key = 'root_folder_path_4k' if is_4k else 'root_folder_path'
+    
+    quality_profile_id = config.get(quality_key)
+    root_folder_path = config.get(folder_key)
+
+    if not quality_profile_id or not root_folder_path:
+        return get_text('setup_4k_profile_not_configured', lang).format(service=service_name.capitalize())
 
     api_path = 'movie' if service_name == 'radarr' else 'series'
     url = f"{config['url'].rstrip('/')}/api/v3/{api_path}"
@@ -518,8 +548,8 @@ def add_to_arr_service(media_info, service_name):
     
     payload = {
         "title": media_info['title'],
-        "qualityProfileId": int(config['quality_profile_id']),
-        "rootFolderPath": config['root_folder_path'],
+        "qualityProfileId": int(quality_profile_id),
+        "rootFolderPath": root_folder_path,
         "monitored": True, "tmdbId": media_info['tmdb_id']
     }
 
@@ -550,98 +580,112 @@ def add_to_arr_service(media_info, service_name):
 
 # --- Command Handlers ---
 
-def start_cmd(update: Update, context: CallbackContext) -> int:
+def start_cmd(update: Update, context: CallbackContext):
+    """Greets the user and tells them how to authenticate."""
     global CONFIG
-    CONFIG = load_config()
-    user_id = update.effective_user.id
+    CONFIG = load_config() # Reload config on start
+    update.message.reply_text(get_text('start_message', CONFIG.get('language')))
+
+def login_cmd(update: Update, context: CallbackContext) -> int:
+    """Starts the login process for the admin."""
     lang = CONFIG.get('language')
-
-    if is_admin(user_id):
-        update.message.reply_text(get_text("welcome_admin", lang))
-        return ConversationHandler.END
-    if str(user_id) in CONFIG.get("friend_user_ids", {}):
-        update.message.reply_text(get_text("welcome_friend", lang))
+    if context.user_data.get('role') == 'admin':
+        update.message.reply_text(get_text('login_already_done', lang))
         return ConversationHandler.END
 
-    if not CONFIG.get("admin_user_id"):
-        if not (os.getenv("BOT_USER") and os.getenv("BOT_PASSWORD")):
-            update.message.reply_text("🚨 CRITICAL ERROR: BOT_USER and BOT_PASSWORD variables are not set in the .env file.")
-            return ConversationHandler.END
-        context.user_data['admin_id_to_set'] = user_id
-        update.message.reply_text(get_text("auth_initial_user", lang))
-        return ASK_ADMIN_USER
+    if not os.getenv("BOT_USER") or not os.getenv("BOT_PASSWORD"):
+        update.message.reply_text("🚨 CRITICAL ERROR: BOT_USER and BOT_PASSWORD variables are not set in the .env file.")
+        return ConversationHandler.END
 
-    update.message.reply_text(get_text("auth_prompt", lang))
-    return ASK_FRIEND_CODE
-
-def ask_admin_user_handler(update: Update, context: CallbackContext) -> int:
-    lang = CONFIG.get('language')
-    if update.message.text.strip() == os.getenv("BOT_USER"):
-        update.message.reply_text(get_text("auth_initial_pass", lang))
-        return ASK_ADMIN_PASS
+    # If admin is not set, this user can become admin
+    # If admin IS set, only that user can proceed
+    if not CONFIG.get('admin_user_id') or update.effective_user.id == CONFIG.get('admin_user_id'):
+        update.message.reply_text(get_text("login_prompt_user", lang))
+        return AWAIT_LOGIN_USER
     else:
-        update.message.reply_text(get_text("auth_user_incorrect", lang))
-        return ASK_ADMIN_USER
+        update.message.reply_text(get_text('login_fail', lang))
+        return ConversationHandler.END
 
-def ask_admin_pass_handler(update: Update, context: CallbackContext) -> int:
+def handle_login_user(update: Update, context: CallbackContext) -> int:
+    """Handles the username step of the login process."""
+    lang = CONFIG.get('language')
+    context.user_data['login_username'] = update.message.text.strip()
+    update.message.reply_text(get_text("login_prompt_pass", lang))
+    return AWAIT_LOGIN_PASSWORD
+
+def check_login_credentials(update: Update, context: CallbackContext) -> int:
+    """Checks the admin credentials."""
     global CONFIG
     lang = CONFIG.get('language')
-    if update.message.text.strip() == os.getenv("BOT_PASSWORD"):
-        CONFIG['admin_user_id'] = context.user_data.get('admin_id_to_set')
-        save_config(CONFIG)
-        update.message.reply_text(get_text("auth_admin_set", lang))
+    password = update.message.text.strip()
+    username = context.user_data.get('login_username')
+
+    # For security, clear the sent password message
+    context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+
+    if username == os.getenv("BOT_USER") and password == os.getenv("BOT_PASSWORD"):
+        # If admin_user_id is not set, this is the first successful login, so set it.
+        if not CONFIG.get('admin_user_id'):
+            CONFIG['admin_user_id'] = update.effective_user.id
+            save_config(CONFIG)
+        
+        context.user_data['role'] = 'admin'
+        update.message.reply_text(get_text('login_success', lang))
         return ConversationHandler.END
     else:
-        update.message.reply_text(get_text("auth_pass_incorrect", lang))
-        return ASK_ADMIN_PASS
+        update.message.reply_text(get_text('login_fail', lang))
+        return ConversationHandler.END
 
-def ask_friend_code_handler(update: Update, context: CallbackContext) -> int:
+@auth_required
+def logout_cmd(update: Update, context: CallbackContext):
+    """Logs the current user out by clearing their session data."""
+    context.user_data.clear()
+    update.message.reply_text(get_text('logout_success', CONFIG.get('language')))
+
+def auth_cmd(update: Update, context: CallbackContext) -> int:
+    """Handles friend authentication."""
     global CONFIG
-    code = update.message.text.strip()
+    if not context.args:
+        update.message.reply_text(get_text("auth_prompt", CONFIG.get('language')))
+        return ConversationHandler.END
+
+    code = context.args[0]
     lang = CONFIG.get('language')
-    
-    # Find which user this code belongs to
     friend_name = None
-    friend_code_data = None
-    for c, data in list(CONFIG.get('friend_codes', {}).items()):
-        if c == code:
-            if datetime.fromisoformat(data['expires']) < datetime.now():
-                del CONFIG['friend_codes'][c] # Clean up expired code
-                break
-            friend_name = data['name']
-            friend_code_data = data
-            break
 
-    if friend_name and friend_code_data:
+    # Clean up expired codes
+    active_codes = {c: data for c, data in CONFIG.get('friend_codes', {}).items() if datetime.fromisoformat(data['expires']) >= datetime.now()}
+    if len(active_codes) != len(CONFIG.get('friend_codes', {})):
+        CONFIG['friend_codes'] = active_codes
+        save_config(CONFIG)
+
+    if code in CONFIG.get('friend_codes', {}):
+        friend_name = CONFIG['friend_codes'][code]['name']
         CONFIG.setdefault('friend_user_ids', {})[str(update.effective_user.id)] = friend_name
-        del CONFIG['friend_codes'][code] # Code is single-use
+        del CONFIG['friend_codes'][code]
+        context.user_data['role'] = 'friend'
         save_config(CONFIG)
         update.message.reply_text(get_text('auth_friend_code_accepted', lang))
-        help_cmd(update, context)
-        return ConversationHandler.END
     else:
         update.message.reply_text(get_text('auth_friend_code_invalid', lang))
-        return ASK_FRIEND_CODE
-
-def cancel_auth(update: Update, context: CallbackContext) -> int:
-    update.message.reply_text(get_text('auth_cancelled', CONFIG.get('language')))
+    
     return ConversationHandler.END
 
 @auth_required
 def help_cmd(update: Update, context: CallbackContext):
     lang = CONFIG.get('language')
-    if is_admin(update.effective_user.id):
+    if context.user_data.get('role') == 'admin':
         update.message.reply_text(get_text('help_admin', lang), parse_mode=ParseMode.MARKDOWN)
     else:
         update.message.reply_text(get_text('help_friend', lang), parse_mode=ParseMode.MARKDOWN)
 
-def _display_search_results(update: Update, context: CallbackContext, results: list, media_type: str, mode: str):
+def _display_search_results(update: Update, context: CallbackContext, results: list, media_type: str, mode: str, is_4k: bool = False):
     lang = CONFIG.get('language')
     if not results:
         update.message.reply_text(get_text('no_results', lang).format(query=" ".join(context.args)))
         return
 
-    context.user_data.update({'search_results': results, 'search_index': 0, 'search_media_type': media_type, 'search_mode': mode})
+    context.user_data.update({'search_results': results, 'search_index': 0, 'search_media_type': media_type, 'search_mode': mode, 'is_4k': is_4k})
     _send_media_card(update, context)
 
 def _send_media_card(update: Update, context: CallbackContext, chat_id=None, message_id=None):
@@ -650,7 +694,9 @@ def _send_media_card(update: Update, context: CallbackContext, chat_id=None, mes
     item = results[idx]
     media_type = context.user_data['search_media_type']
     mode = context.user_data['search_mode']
+    is_4k = context.user_data.get('is_4k', False)
     lang = CONFIG.get('language')
+    user_role = context.user_data.get('role')
 
     is_movie = media_type == 'movie'
     title = item.get('title') if is_movie else item.get('name')
@@ -665,10 +711,12 @@ def _send_media_card(update: Update, context: CallbackContext, chat_id=None, mes
     
     buttons = []
     if mode == 'add':
-        if is_admin(update.effective_user.id):
-            buttons.append([InlineKeyboardButton(get_text('add_button', lang), callback_data=f"add_{media_type}_{tmdb_id}")])
+        add_button_text = get_text('add_button_4k' if is_4k else 'add_button', lang)
+        callback_suffix = f"_{'4k' if is_4k else 'std'}"
+        if user_role == 'admin':
+            buttons.append([InlineKeyboardButton(add_button_text, callback_data=f"add_{media_type}{callback_suffix}_{tmdb_id}")])
         else:
-            buttons.append([InlineKeyboardButton(get_text('check_button', lang), callback_data=f"add_{media_type}_{tmdb_id}")])
+            buttons.append([InlineKeyboardButton(get_text('check_button', lang), callback_data=f"add_{media_type}_std_{tmdb_id}")])
     elif mode == 'check':
         buttons.append([InlineKeyboardButton(get_text('check_button', lang), callback_data=f"check_{media_type}_{tmdb_id}")])
 
@@ -707,9 +755,13 @@ def button_callback_handler(update: Update, context: CallbackContext):
 
     query.message.delete()
     
-    action, media_type, tmdb_id_str = data.split('_')
+    parts = data.split('_')
+    action = parts[0]
+    media_type = parts[1]
+    is_4k = parts[2] == '4k' if action == 'add' else False
+    tmdb_id_str = parts[-1]
     tmdb_id = int(tmdb_id_str)
-    
+
     item = next((i for i in context.user_data.get('search_results', []) if i['id'] == tmdb_id), None)
     if not item:
         query.message.reply_text(get_text('error_media_details', lang))
@@ -721,11 +773,11 @@ def button_callback_handler(update: Update, context: CallbackContext):
     media_info = {'title': title, 'year': year, 'tmdb_id': tmdb_id, 'media_type': media_type}
 
     if action == 'add':
-        perform_full_check_and_act(context, media_info, query.message.chat_id, update.effective_user.id)
+        perform_full_check_and_act(context, media_info, query.message.chat_id, update.effective_user.id, is_4k=is_4k)
     elif action == 'check':
         perform_simplified_check(context, media_info, query.message.chat_id)
 
-def perform_full_check_and_act(context: CallbackContext, media_info: dict, chat_id: int, user_id: int):
+def perform_full_check_and_act(context: CallbackContext, media_info: dict, chat_id: int, user_id: int, is_4k: bool = False):
     title, year, tmdb_id = media_info['title'], media_info['year'], media_info['tmdb_id']
     media_type = 'tv' if media_info['media_type'] == 'show' else 'movie'
     lang = CONFIG.get('language')
@@ -747,7 +799,7 @@ def perform_full_check_and_act(context: CallbackContext, media_info: dict, chat_
     status_msg.edit_text(get_text('media_unavailable', lang).format(title=title))
     
     if is_admin(user_id):
-        add_result = add_to_arr_service(media_info, 'radarr' if media_type == 'movie' else 'sonarr')
+        add_result = add_to_arr_service(media_info, 'radarr' if media_type == 'movie' else 'sonarr', is_4k=is_4k)
         context.bot.send_message(chat_id, add_result)
     else:
         context.bot.send_message(chat_id, get_text('media_unavailable_friend', lang).format(title=title))
@@ -790,10 +842,11 @@ def perform_simplified_check(context: CallbackContext, media_info: dict, chat_id
 
 @auth_required
 @config_required('TMDB')
-def search_cmd(update: Update, context: CallbackContext, media_type: str):
+def search_cmd(update: Update, context: CallbackContext, media_type: str, is_4k: bool = False):
     lang = CONFIG.get('language')
     if not context.args:
-        update.message.reply_text(get_text('provide_title', lang).format(command=media_type))
+        command = f"{media_type}4k" if is_4k else media_type
+        update.message.reply_text(get_text('provide_title', lang).format(command=command))
         return
     
     query = " ".join(context.args)
@@ -804,7 +857,7 @@ def search_cmd(update: Update, context: CallbackContext, media_type: str):
     data = _api_get_request(url, params)
     
     if data and data.get('results'):
-        _display_search_results(update, context, data['results'], media_type, mode='add')
+        _display_search_results(update, context, data['results'], media_type, mode='add', is_4k=is_4k)
     else:
         update.message.reply_text(get_text('no_results', lang).format(query=query))
 
@@ -907,6 +960,18 @@ def set_language_callback(update: Update, context: CallbackContext):
     
     lang_map = {'en': 'English', 'pt': 'Português', 'es': 'Español'}
     query.edit_message_text(get_text('language_set', new_lang).format(lang_name=lang_map[new_lang]))
+
+def streaming_cmd(update: Update, context: CallbackContext):
+    """Displays a list of available streaming service codes."""
+    lang = CONFIG.get('language')
+    message = get_text('streaming_list_header', lang)
+    for code, names in KEYWORD_MAP.items():
+        # Capitalize the first name for display
+        display_name = names[0].title()
+        message += f"`{code}` - {display_name}\n"
+    
+    update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
 
 # --- Setup Conversation Handlers ---
 def _send_setup_menu(update: Update, context: CallbackContext):
@@ -1029,6 +1094,27 @@ def setup_radarr_quality_id(update, context):
 
 def setup_radarr_root_folder(update, context):
     context.user_data['setup_data']['radarr']['root_folder_path'] = update.message.text.strip()
+    update.message.reply_text(get_text('setup_ask_4k', CONFIG.get('language')).format(service='Radarr'))
+    return AWAIT_RADARR_4K_CHOICE
+
+def await_radarr_4k_choice(update: Update, context: CallbackContext):
+    text = update.message.text.lower()
+    if text in ['yes', 'y', 'sim', 's']:
+        update.message.reply_text(get_text('setup_4k_quality_prompt', CONFIG.get('language')).format(service='Radarr'))
+        return SETUP_RADARR_QUALITY_ID_4K
+    else:
+        # Skip 4K config for Radarr
+        context.user_data['setup_data']['radarr']['quality_profile_id_4k'] = ""
+        context.user_data['setup_data']['radarr']['root_folder_path_4k'] = ""
+        return _return_to_menu_or_continue(update, context, SETUP_SONARR_URL, "Radarr configured!\n\nNow for Sonarr. What is the URL?")
+
+def setup_radarr_quality_id_4k(update, context):
+    context.user_data['setup_data']['radarr']['quality_profile_id_4k'] = update.message.text.strip()
+    update.message.reply_text(get_text('setup_4k_folder_prompt', CONFIG.get('language')).format(service='Radarr'))
+    return SETUP_RADARR_ROOT_FOLDER_4K
+
+def setup_radarr_root_folder_4k(update, context):
+    context.user_data['setup_data']['radarr']['root_folder_path_4k'] = update.message.text.strip()
     return _return_to_menu_or_continue(update, context, SETUP_SONARR_URL, "Radarr configured!\n\nNow for Sonarr. What is the URL?")
 
 def setup_sonarr_url(update, context):
@@ -1053,7 +1139,29 @@ def setup_sonarr_lang_id(update, context):
 
 def setup_sonarr_root_folder(update, context):
     context.user_data['setup_data']['sonarr']['root_folder_path'] = update.message.text.strip()
+    update.message.reply_text(get_text('setup_ask_4k', CONFIG.get('language')).format(service='Sonarr'))
+    return AWAIT_SONARR_4K_CHOICE
+
+def await_sonarr_4k_choice(update: Update, context: CallbackContext):
+    text = update.message.text.lower()
+    if text in ['yes', 'y', 'sim', 's']:
+        update.message.reply_text(get_text('setup_4k_quality_prompt', CONFIG.get('language')).format(service='Sonarr'))
+        return SETUP_SONARR_QUALITY_ID_4K
+    else:
+        # Skip 4K config for Sonarr
+        context.user_data['setup_data']['sonarr']['quality_profile_id_4k'] = ""
+        context.user_data['setup_data']['sonarr']['root_folder_path_4k'] = ""
+        return _return_to_menu_or_continue(update, context, SETUP_OVERSEERR_URL, "Sonarr configured!\n\nFinally, Overseerr. What is the URL?")
+
+def setup_sonarr_quality_id_4k(update, context):
+    context.user_data['setup_data']['sonarr']['quality_profile_id_4k'] = update.message.text.strip()
+    update.message.reply_text(get_text('setup_4k_folder_prompt', CONFIG.get('language')).format(service='Sonarr'))
+    return SETUP_SONARR_ROOT_FOLDER_4K
+
+def setup_sonarr_root_folder_4k(update, context):
+    context.user_data['setup_data']['sonarr']['root_folder_path_4k'] = update.message.text.strip()
     return _return_to_menu_or_continue(update, context, SETUP_OVERSEERR_URL, "Sonarr configured!\n\nFinally, Overseerr. What is the URL?")
+
 
 def setup_overseerr_url(update, context):
     context.user_data['setup_data'].setdefault('overseerr', {})['url'] = update.message.text.strip()
@@ -1061,7 +1169,6 @@ def setup_overseerr_url(update, context):
     return SETUP_OVERSEERR_API_KEY
 
 def setup_overseerr_api_key(update, context):
-    # This is the final step in the "all" flow, so save and end
     global CONFIG
     context.user_data['setup_data']['overseerr']['api_key'] = update.message.text.strip()
     update.message.reply_text("✅ Overseerr configured!")
@@ -1183,6 +1290,11 @@ def remove_friend_confirm(update: Update, context: CallbackContext) -> int:
     )
     return FRIENDS_MENU
 
+def unauthenticated_handler(update: Update, context: CallbackContext):
+    """Handles any message from a user who is not logged in."""
+    # This check is vital. It ensures this handler only acts on users who are not logged in.
+    if not context.user_data.get('role'):
+        update.message.reply_text(get_text("unauthenticated_message", 'en')) # Always in English
 
 # --- Main Function ---
 def main() -> None:
@@ -1195,14 +1307,14 @@ def main() -> None:
     updater = Updater(bot_token, persistence=None, use_context=True)
     dispatcher = updater.dispatcher
 
-    auth_conv = ConversationHandler(
-        entry_points=[CommandHandler('start', start_cmd)],
+    # This conversation handles the entire login flow for admins
+    login_conv = ConversationHandler(
+        entry_points=[CommandHandler('login', login_cmd)],
         states={
-            ASK_FRIEND_CODE: [MessageHandler(Filters.text & ~Filters.command, ask_friend_code_handler)],
-            ASK_ADMIN_USER: [MessageHandler(Filters.text & ~Filters.command, ask_admin_user_handler)],
-            ASK_ADMIN_PASS: [MessageHandler(Filters.text & ~Filters.command, ask_admin_pass_handler)],
+            AWAIT_LOGIN_USER: [MessageHandler(Filters.text & ~Filters.command, handle_login_user)],
+            AWAIT_LOGIN_PASSWORD: [MessageHandler(Filters.text & ~Filters.command, check_login_credentials)],
         },
-        fallbacks=[CommandHandler('cancel', cancel_auth)],
+        fallbacks=[CommandHandler('cancel', cancel_setup)],
     )
     
     setup_conv = ConversationHandler(
@@ -1218,11 +1330,17 @@ def main() -> None:
             SETUP_RADARR_API_KEY: [MessageHandler(Filters.text & ~Filters.command, setup_radarr_api_key)],
             SETUP_RADARR_QUALITY_ID: [MessageHandler(Filters.text & ~Filters.command, setup_radarr_quality_id)],
             SETUP_RADARR_ROOT_FOLDER: [MessageHandler(Filters.text & ~Filters.command, setup_radarr_root_folder)],
+            AWAIT_RADARR_4K_CHOICE: [MessageHandler(Filters.text & ~Filters.command, await_radarr_4k_choice)],
+            SETUP_RADARR_QUALITY_ID_4K: [MessageHandler(Filters.text & ~Filters.command, setup_radarr_quality_id_4k)],
+            SETUP_RADARR_ROOT_FOLDER_4K: [MessageHandler(Filters.text & ~Filters.command, setup_radarr_root_folder_4k)],
             SETUP_SONARR_URL: [MessageHandler(Filters.text & ~Filters.command, setup_sonarr_url)],
             SETUP_SONARR_API_KEY: [MessageHandler(Filters.text & ~Filters.command, setup_sonarr_api_key)],
             SETUP_SONARR_QUALITY_ID: [MessageHandler(Filters.text & ~Filters.command, setup_sonarr_quality_id)],
             SETUP_SONARR_LANG_ID: [MessageHandler(Filters.text & ~Filters.command, setup_sonarr_lang_id)],
             SETUP_SONARR_ROOT_FOLDER: [MessageHandler(Filters.text & ~Filters.command, setup_sonarr_root_folder)],
+            AWAIT_SONARR_4K_CHOICE: [MessageHandler(Filters.text & ~Filters.command, await_sonarr_4k_choice)],
+            SETUP_SONARR_QUALITY_ID_4K: [MessageHandler(Filters.text & ~Filters.command, setup_sonarr_quality_id_4k)],
+            SETUP_SONARR_ROOT_FOLDER_4K: [MessageHandler(Filters.text & ~Filters.command, setup_sonarr_root_folder_4k)],
             SETUP_OVERSEERR_URL: [MessageHandler(Filters.text & ~Filters.command, setup_overseerr_url)],
             SETUP_OVERSEERR_API_KEY: [MessageHandler(Filters.text & ~Filters.command, setup_overseerr_api_key)],
         },
@@ -1239,16 +1357,27 @@ def main() -> None:
         fallbacks=[CommandHandler('cancel', cancel_setup)]
     )
 
-    dispatcher.add_handler(auth_conv)
+    dispatcher.add_handler(CommandHandler("start", start_cmd))
+    dispatcher.add_handler(login_conv)
+    dispatcher.add_handler(CommandHandler("auth", auth_cmd))
+    dispatcher.add_handler(CommandHandler("logout", logout_cmd))
     dispatcher.add_handler(setup_conv)
     dispatcher.add_handler(friends_conv)
     dispatcher.add_handler(CommandHandler("help", help_cmd))
     dispatcher.add_handler(CommandHandler("debug", debug_cmd))
     dispatcher.add_handler(CommandHandler("language", language_cmd))
+    dispatcher.add_handler(CommandHandler("streaming", streaming_cmd))
     dispatcher.add_handler(CommandHandler("check", check_cmd))
     dispatcher.add_handler(CommandHandler("movie", lambda u, c: search_cmd(u, c, 'movie')))
     dispatcher.add_handler(CommandHandler("show", lambda u, c: search_cmd(u, c, 'show')))
+    dispatcher.add_handler(CommandHandler("movie4k", lambda u, c: search_cmd(u, c, 'movie', is_4k=True)))
+    dispatcher.add_handler(CommandHandler("show4k", lambda u, c: search_cmd(u, c, 'show', is_4k=True)))
     dispatcher.add_handler(CallbackQueryHandler(button_callback_handler))
+
+    # This handler catches any message or command not handled above
+    # It must be added last among the message/command handlers
+    dispatcher.add_handler(MessageHandler(Filters.all, unauthenticated_handler))
+
 
     updater.start_polling()
     logger.info("Bot started and listening for commands...")
