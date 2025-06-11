@@ -1,118 +1,136 @@
-Searcharr Plus - Your Smart Media Manager Bot
-🤖 Telegram Bot Inspired by Searchrr by toddrob99, Searchrr Plus is an enhanced Telegram bot for Radarr and Sonarr with a key feature: Before adding media, it checks availability on your subscribed streaming services to prevent unnecessary downloads. It's easily deployed with Docker and features a guided setup. Searcharr Plus allows admins to effortlessly add new movies and shows, while friends can check library status and streaming availability without needing direct access to your services.
+Searchrr Plus - Your Smart Media Manager Bot 🤖
+Inspired by Searchrr by toddrob99, Searchrr Plus is an enhanced Telegram bot designed to integrate seamlessly with Radarr and Sonarr. Its key feature is intelligence: before adding any media, the bot checks for its availability across your subscribed streaming services. This smart check prevents unnecessary downloads, saving you bandwidth and disk space.
+
+Deployable in seconds with Docker, Searchrr Plus features a guided, interactive setup process right from your Telegram chat. It empowers administrators to effortlessly add new movies and shows (in standard or 4K quality), while allowing friends and family to check your library status and streaming availability without needing direct access to your services.
 
 ✨ Features
-Admin & Friend Roles: A secure, two-tier access system. Admins have full control, while friends can be granted read-only access with unique, revokable codes.
+Smart Availability Check: Automatically checks Plex, subscribed streaming services, and existing Overseerr requests before adding to Radarr/Sonarr.
 
-Intelligent Media Workflow:
+Admin & Friend Roles:
 
-Plex Integration: Before anything else, the bot checks if a movie or show is already available in your Plex library.
+Admins have full control: add media, manage users, and configure the bot.
 
-Overseerr Integration: If not in Plex, it checks for pending requests in Overseerr to avoid duplicates.
+Friends can check media availability without adding/modifying anything.
 
-TMDB Streaming Info: For new media, it checks availability on popular streaming platforms based on your region and subscribed services, helping you save on unnecessary downloads.
+4K Support: Admins can add media using separate 4K quality profiles and root folders in Radarr and Sonarr with the /movie4k and /show4k commands.
 
-Interactive Interface: All search commands (/movie, /show, /status) provide a rich, interactive carousel with posters, summaries, and action buttons for easy navigation and selection.
+Secure & Session-Based Login: User sessions are stored in memory and are not persistent. All users must re-authenticate with /login or an access code when the bot restarts. A /logout command is also available for the admin.
 
-Friend Management: Admins can easily generate and manage access codes for friends and family directly from the bot.
+Easy Friend Management: A simple, button-based /friends menu allows admins to add, remove, and list friends with unique, single-use access codes.
 
-Guided & Persistent Setup:
+Interactive Setup: A guided /setup menu with buttons allows for easy initial configuration and modification of individual services at any time.
 
-An easy-to-use /setup command within Telegram handles all configuration for URLs and API keys.
+Multi-Language Support: Full interface translations for English, Portuguese, and Spanish, selectable with the /language command.
 
-All settings are saved in a config.json file, surviving bot restarts and container recreations.
+Docker-First Deployment: Designed to be easily deployed and managed using Docker and Docker Compose.
 
-Docker-First Deployment: Optimized for easy, one-command deployment using Docker and Docker Compose, perfect for home servers like a Raspberry Pi.
+🚀 Getting Started
+Getting started with Searchrr Plus is simple. All you need is Docker and Docker Compose installed.
 
-Flexible & Multi-Lingual: Use /skip during setup to configure only the services you need. The interface is available in English, Portuguese, and Spanish and can be changed anytime with /language.
+1. Project Structure
+Create a directory for your bot and place the bot.py script inside it.
 
-📋 Prerequisites
-Docker & Docker Compose: The recommended way to run the bot.
+searchrr-plus/
+├── bot.py
+├── config/
+└── logs/
 
-Telegram Bot Token: Get one from @BotFather on Telegram.
+The config and logs directories will be created automatically when you first run the bot.
 
-TMDB API Key: A free API key from The Movie Database is required for searching and checking streaming providers.
+2. Create the .env file
+In the same searchrr-plus directory, create a file named .env. This file will store your essential secrets.
 
-Running Services: Instances of Radarr, Sonarr, Plex, and/or Overseerr that are accessible from where the bot is running.
+# .env file
 
-🚀 Installation & Setup
-Clone the Repository
+# Your Telegram Bot Token from @BotFather
+BOT_TOKEN="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 
-git clone https://github.com/your-username/searchrr-plus.git
-cd searchrr-plus
+# The username and password for the bot's administrator
+BOT_USER="your_admin_username"
+BOT_PASSWORD="a_very_strong_password"
 
-Create the Environment File
-The bot requires a Token, an Admin Username, and a Password to start. Copy the example file:
+3. Create the docker-compose.yml file
+Create a docker-compose.yml file in the searchrr-plus directory. This file will define how to run your bot in a container.
 
-cp .env.example .env
+# docker-compose.yml
+version: '3.8'
 
-Open the .env file (nano .env) and set your credentials:
+services:
+  searcharr-bot:
+    container_name: searcharr-bot
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - BOT_USER=${BOT_USER}
+      - BOT_PASSWORD=${BOT_PASSWORD}
 
-# Credentials for the bot's admin user
-BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u-abcDEF123
-BOT_USER=admin
-BOT_PASSWORD=your_secure_password
+4. Create the Dockerfile
+Finally, create a Dockerfile in the same directory. This tells Docker how to build the image for your bot.
 
-Build and Run with Docker
-From the project's root directory, run:
+# Dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+COPY . .
+
+RUN pip install python-telegram-bot==13.15 python-dotenv requests plexapi
+
+CMD ["python3", "bot.py"]
+
+5. Run the Bot!
+With all the files in place, open a terminal in the searchrr-plus directory and run:
 
 docker-compose up -d --build
 
-This will build the Docker image and start the container in detached mode. To check the logs:
+Your bot is now running! Open Telegram, find your bot, and send /start. It will guide you through the initial admin login and setup.
 
-docker-compose logs -f
+⚙️ Configuration
+First-Time Admin Setup: The first user to interact with the bot after a fresh start (with no config.json present) can become the admin by providing the BOT_USER and BOT_PASSWORD from the .env file.
 
-First-Time Setup via Telegram
+/setup Command: As the admin, you can use the /setup command at any time to configure all integrations. The interactive menu allows you to configure everything at once or just a specific service.
 
-Login: Start a chat with your bot and use the /login command with the credentials from your .env file.
-
-Configure: Use the /setup command. The bot will guide you through configuring the URLs and API keys for each service.
-
-Skip (Optional): You can use /skip at any prompt to bypass the configuration for a specific service (e.g., skip the Radarr section if you only use Sonarr).
-
-🤖 Bot Commands
+📋 Commands
 Admin Commands
-/login: Authenticate as the admin.
+/movie <title>: Search for a movie and add it to Radarr.
 
-/setup: Start the guided setup to configure services.
+/movie4k <title>: Search for a movie and add it using your configured 4K profile.
 
-/movie <name>: Searches Radarr for a movie and provides an option to add it.
+/show <title>: Search for a series and add it to Sonarr.
 
-/show <name>: Searches Sonarr for a series and provides an option to add it.
+/show4k <title>: Search for a series and add it using your configured 4K profile.
 
-/status <movie|show> <name>: Searches for media and provides an interface to check if it's in Plex or requested on Overseerr.
+/check <movie|show> <title>: Check if a media item is already on Plex, Radarr, or Sonarr.
 
-/friends: Manage friend access (add, remove, list).
+/friends: Open the friend management menu.
+
+/setup: Open the bot configuration menu.
 
 /language: Change the bot's display language.
 
-/logout: Log out from the bot.
+/streaming: List all available streaming service codes for configuration.
 
-/help: Shows the list of admin commands.
+/debug <movie|show> <title>: Run a step-by-step diagnostic check for a media item.
+
+/logout: Log out of the admin session.
+
+/help: Show this help message.
 
 Friend Commands
-/auth <code>: Authenticate using a friend code.
+/movie <title>: Check the availability of a movie.
 
-/movie <name>: Searches for a movie and checks its availability on your subscribed streaming services.
+/show <title>: Check the availability of a series.
 
-/show <name>: Searches for a series and checks its availability on your subscribed streaming services.
+/check <movie|show> <title>: Check if a media item is already on Plex, Radarr, or Sonarr.
 
-/status <movie|show> <name>: Checks if a media item is already on the admin's Plex or has been requested.
+/language: Change the bot's display language.
 
-/logout: End your session.
-
-/help: Shows the list of available commands.
-
-📁 Project Structure
-.
-├── config/             # (Auto-generated) Stores the persistent config.json file
-├── logs/               # (Auto-generated) Stores log files
-├── .env                # (You create) Your private Telegram Bot Token and admin credentials
-├── .env.example        # Example environment file
-├── bot.py              # The main Python script for the bot
-├── docker-compose.yml  # Docker Compose file for easy deployment
-├── Dockerfile          # Instructions to build the Docker image
-└── requirements.txt    # Python dependencies
+/help: Show this help message.
+![image](https://github.com/user-attachments/assets/ced297da-8caf-497b-8c97-ac5529e6ade8)
 
 ![image](https://github.com/user-attachments/assets/676616a9-a5fc-4585-8f51-639088a37416)
 ![image](https://github.com/user-attachments/assets/3d98a191-4804-47a2-9714-c9b72a03e7b2)
