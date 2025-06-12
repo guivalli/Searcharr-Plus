@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+
 import logging
 import os
 import json
@@ -223,7 +224,7 @@ translations = {
         "service_add_fail": "❌ Falha ao adicionar '{title}' ao {service_name}.",
         "check_sonarr_radarr_found": "✅ '{title}' já está no {service_name}.",
         "check_not_found": "❌ '{title}' não foi encontrado no seu Plex, Radarr ou Sonarr.",
-        "friends_menu_prompt": "👥 *Gerenciamento de Amigos*\n\nO que você gostaria de fazer?",
+        "friends_menu_prompt": "� *Gerenciamento de Amigos*\n\nO que você gostaria de fazer?",
         "friends_button_add": "➕ Adicionar Amigo",
         "friends_button_remove": "➖ Remover Amigo",
         "friends_button_list": "📋 Listar Amigos",
@@ -251,7 +252,7 @@ translations = {
         "debug_end": "Debug finalizado.",
     },
     'es': {
-        "start_message": "👋 ¡Bienvenido! Por favor, usa /login (admin) o /auth `<code>` (amigo) para empezar.",
+        "start_message": "? ¡Bienvenido! Por favor, usa /login (admin) o /auth `<code>` (amigo) para empezar.",
         "login_prompt_user": "🔑 Por favor, introduce el nombre de usuario del admin:",
         "login_prompt_pass": "🔑 Por favor, introduce la contraseña:",
         "login_success": "✅ ¡Inicio de sesión exitoso! Bienvenido de nuevo.",
@@ -606,8 +607,6 @@ def login_cmd(update: Update, context: CallbackContext) -> int:
         update.message.reply_text("🚨 CRITICAL ERROR: BOT_USER and BOT_PASSWORD variables are not set in the .env file.")
         return ConversationHandler.END
 
-    # If admin is not set, this user can become admin
-    # If admin IS set, only that user can proceed
     if not CONFIG.get('admin_user_id') or update.effective_user.id == CONFIG.get('admin_user_id'):
         update.message.reply_text(get_text("login_prompt_user", lang))
         return AWAIT_LOGIN_USER
@@ -628,12 +627,10 @@ def check_login_credentials(update: Update, context: CallbackContext) -> int:
     lang = CONFIG.get('language')
     password = update.message.text.strip()
     username = context.user_data.get('login_username')
-
-    # For security, clear the sent password message
+    
     context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
     if username == os.getenv("BOT_USER") and password == os.getenv("BOT_PASSWORD"):
-        # If admin_user_id is not set, this is the first successful login, so set it.
         if not CONFIG.get('admin_user_id'):
             CONFIG['admin_user_id'] = update.effective_user.id
             save_config(CONFIG)
@@ -651,25 +648,24 @@ def logout_cmd(update: Update, context: CallbackContext):
     context.user_data.clear()
     update.message.reply_text(get_text('logout_success', CONFIG.get('language')))
 
-def auth_cmd(update: Update, context: CallbackContext) -> int:
+def auth_cmd(update: Update, context: CallbackContext):
     """Handles friend authentication."""
     global CONFIG
     if not context.args:
         update.message.reply_text(get_text("auth_prompt", CONFIG.get('language')))
-        return ConversationHandler.END
-
+        return
+    
     code = context.args[0]
     lang = CONFIG.get('language')
     friend_name = None
-
-    # Clean up expired codes
+    
     active_codes = {c: data for c, data in CONFIG.get('friend_codes', {}).items() if datetime.fromisoformat(data['expires']) >= datetime.now()}
     if len(active_codes) != len(CONFIG.get('friend_codes', {})):
         CONFIG['friend_codes'] = active_codes
         save_config(CONFIG)
 
-    if code in CONFIG.get('friend_codes', {}):
-        friend_name = CONFIG['friend_codes'][code]['name']
+    if code in active_codes:
+        friend_name = active_codes[code]['name']
         CONFIG.setdefault('friend_user_ids', {})[str(update.effective_user.id)] = friend_name
         del CONFIG['friend_codes'][code]
         context.user_data['role'] = 'friend'
@@ -677,8 +673,6 @@ def auth_cmd(update: Update, context: CallbackContext) -> int:
         update.message.reply_text(get_text('auth_friend_code_accepted', lang))
     else:
         update.message.reply_text(get_text('auth_friend_code_invalid', lang))
-    
-    return ConversationHandler.END
 
 @auth_required
 def help_cmd(update: Update, context: CallbackContext):
@@ -1052,7 +1046,8 @@ def setup_redirector(update: Update, context: CallbackContext) -> int:
             query.edit_message_text(get_text('setup_saved', lang))
         else:
             query.edit_message_text(get_text('setup_error_saving', lang))
-        context.user_data.clear()
+        context.user_data.pop('setup_data', None)
+        context.user_data.pop('setup_mode', None)
         return ConversationHandler.END
 
     if choice in prompt_map:
@@ -1196,12 +1191,18 @@ def setup_overseerr_api_key(update, context):
         update.message.reply_text(get_text('setup_saved', CONFIG.get('language')))
     else:
         update.message.reply_text(get_text('setup_error_saving', CONFIG.get('language')))
-    context.user_data.clear()
+    
+    # Clean up only setup-related keys
+    context.user_data.pop('setup_data', None)
+    context.user_data.pop('setup_mode', None)
     return ConversationHandler.END
 
 def cancel_setup(update: Update, context: CallbackContext) -> int:
+    # Clear only setup-related data, preserving login state
+    context.user_data.pop('setup_data', None)
+    context.user_data.pop('setup_mode', None)
+        
     update.message.reply_text(get_text('setup_cancelled', CONFIG.get('language')))
-    context.user_data.clear()
     return ConversationHandler.END
 
 
