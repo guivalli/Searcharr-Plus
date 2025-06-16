@@ -4,7 +4,7 @@ Inspired by `Searchrr` by toddrob99, **Searcharr Plus** is an enhanced Telegram 
 
 Deployable in seconds with Docker, Searcharr Plus features a guided, interactive setup process right from your Telegram chat. It empowers administrators to effortlessly add new movies and shows (in standard or 4K quality), while allowing friends and family to request media or check library status without needing direct access to your services.
 
-![Bot Screenshot](https://i.imgur.com/gGVV5G2.png) 
+
 
 ## ✨ Features
 
