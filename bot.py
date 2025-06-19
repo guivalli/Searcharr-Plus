@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-
 import logging
 import os
 import json
@@ -35,6 +34,9 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 
+# Import the new friend request module
+import friend_requests
+
 # --- Initial Setup ---
 
 load_dotenv()
@@ -60,10 +62,10 @@ KEYWORD_MAP = {
     'sho': ('showtime',), 'glb': ('globoplay',), 'sp': ('star+',)
 }
 
-# ConversationHandler states - Corrected range
+# ConversationHandler states
 (
     # Auth
-    AWAIT_LOGIN_USER, AWAIT_LOGIN_PASSWORD,
+    AWAIT_LOGIN_USER, AWAIT_LOGIN_PASSWORD, AWAIT_FRIEND_CODE,
     # Setup
     SETUP_MENU,
     SETUP_PLEX_URL, SETUP_PLEX_TOKEN,
@@ -76,13 +78,13 @@ KEYWORD_MAP = {
     SETUP_OVERSEERR_URL, SETUP_OVERSEERR_API_KEY,
     # Friends
     FRIENDS_MENU, AWAIT_FRIEND_NAME_TO_ADD, AWAIT_FRIEND_TO_REMOVE
-) = range(28)
+) = range(29)
 
 
 # --- Translations ---
 translations = {
     'en': {
-        "start_message": "👋 Welcome! Please use /login (admin) or /auth `<code>` (friend) to get started.",
+        "start_message": "👋 Welcome! Please use /login (admin) or /auth (friend) to get started.",
         "login_prompt_user": "🔑 Please enter the admin username:",
         "login_prompt_pass": "🔑 Please enter the password:",
         "login_success": "✅ Login successful! Welcome back.",
@@ -90,8 +92,9 @@ translations = {
         "login_already_done": "✅ You are already logged in.",
         "logout_success": "✅ You have been successfully logged out.",
         "auth_required": "🚫 You need to be authenticated. Please use /login or /auth.",
-        "unauthenticated_message": "You are not logged in. Please use /login or send your friend code with /auth `<code>`.",
+        "unauthenticated_message": "You are not logged in. Please use /login or /auth.",
         "admin_required": "⛔ This command is for administrators only.",
+        "auth_prompt": "👋 Welcome! Please enter your friend code:",
         "auth_friend_code_invalid": "❌ Invalid or expired friend code. Try again or type /cancel.",
         "auth_friend_code_accepted": "✅ Friend code accepted! Welcome.",
         "auth_cancelled": "Authentication canceled.",
@@ -99,10 +102,11 @@ translations = {
         "cancel_button": "❌ Cancel",
         "new_friend_code": "🔑 New single-use friend code for '{name}' generated. It is valid for 24 hours:\n\n`{code}`",
         "help_admin": "👑 *Admin Commands*\n\n/movie <title> - Search and add a movie.\n/movie4k <title> - Add a movie in 4K.\n/show <title> - Search and add a series.\n/show4k <title> - Add a series in 4K.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/friends - Manage friend access.\n/setup - (Re)configure the bot.\n/language - Change the bot's language.\n/streaming - List available streaming codes.\n/debug <movie|show> <title> - Diagnose the check for a media.\n/logout - End your session.\n/help - Show this message.",
-        "help_friend": "👥 *Friend Commands*\n\n/movie <title> - Check availability of a movie.\n/show <title> - Check availability of a series.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/language - Change the bot's language.\n/help - Show this message.",
+        "help_friend": "👥 *Friend Commands*\n\n/movie <title> - Check availability of a movie.\n/show <title> - Check availability of a series.\n/friendrequest <movie|show> <title> - Request new media.\n/check <movie|show> <title> - Check if media is on Plex/Radarr/Sonarr.\n/language - Change the bot's language.\n/help - Show this message.",
         "no_results": "🤷 No results found for '{query}'. Try being more specific.",
         "provide_title": "Please provide a title. Usage: /{command} <title>",
         "check_usage": "Usage: /check <movie|show> <title>",
+        "friendrequest_usage": "Usage: /friendrequest <movie|show> <title>",
         "add_button": "➕ Add",
         "add_button_4k": "➕ Add 4K",
         "check_button": "🔎 Check Status",
@@ -112,6 +116,11 @@ translations = {
         "checking_status": "🔎 Checking '{title}'...",
         "media_unavailable": "'{title}' does not seem to be available.",
         "media_unavailable_friend": "ℹ️ '{title}' is not available. Ask an administrator to add it.",
+        "request_sent": "✅ Your request for '{title}' has been sent to the admin for approval.",
+        "request_limit_reached": "🚫 You have reached your daily request limit of 3 requests.",
+        "request_already_in_library": "✅ Great news! '{title}' is already in the library.",
+        "request_approved_notification": "🎉 Good news! Your request for '{title}' has been approved and is being added.",
+        "request_declined_notification": "😞 Sorry, your request for '{title}' was declined by the admin.",
         "setup_menu_prompt": "⚙️ *Setup Menu*\n\nChoose a section to configure, or reconfigure everything.",
         "setup_section_plex": "Plex",
         "setup_section_tmdb": "TMDB",
@@ -167,7 +176,7 @@ translations = {
         "debug_end": "Debug finished.",
     },
     'pt': {
-        "start_message": "👋 Bem-vindo! Por favor, use /login (admin) ou /auth `<code>` (amigo) para começar.",
+        "start_message": "👋 Bem-vindo! Por favor, use /login (admin) ou /auth (amigo) para começar.",
         "login_prompt_user": "🔑 Por favor, digite o nome de usuário do admin:",
         "login_prompt_pass": "🔑 Por favor, digite a senha:",
         "login_success": "✅ Login realizado com sucesso! Bem-vindo(a) de volta.",
@@ -175,8 +184,9 @@ translations = {
         "login_already_done": "✅ Você já está logado.",
         "logout_success": "✅ Você foi desconectado com sucesso.",
         "auth_required": "🚫 Você precisa estar autenticado. Por favor, use /login ou /auth.",
-        "unauthenticated_message": "Você não está logado. Por favor, use /login ou envie seu código de amigo com /auth `<code>`.",
+        "unauthenticated_message": "Você não está logado. Por favor, use /login ou envie seu código de amigo com /auth.",
         "admin_required": "⛔ Este comando é apenas para administradores.",
+        "auth_prompt": "👋 Bem-vindo! Por favor, insira o seu código de amigo:",
         "auth_friend_code_invalid": "❌ Código de amigo inválido ou expirado. Tente novamente ou digite /cancelar.",
         "auth_friend_code_accepted": "✅ Código de amigo aceito! Bem-vindo(a).",
         "auth_cancelled": "Autenticação cancelada.",
@@ -184,10 +194,11 @@ translations = {
         "cancel_button": "❌ Cancelar",
         "new_friend_code": "🔑 Novo código de amigo de uso único para '{name}' gerado. É válido por 24 horas:\n\n`{code}`",
         "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Procurar e adicionar um filme.\n/movie4k <título> - Adicionar um filme em 4K.\n/show <título> - Procurar e adicionar uma série.\n/show4k <título> - Adicionar uma série em 4K.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/friends - Gerenciar amigos.\n/setup - (Re)configurar o bot.\n/language - Alterar o idioma do bot.\n/streaming - Listar códigos de streaming disponíveis.\n/debug <movie|show> <título> - Diagnosticar a verificação de uma mídia.\n/logout - Encerrar sua sessão.\n/help - Mostrar esta mensagem.",
-        "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Verificar disponibilidade de um filme.\n/show <título> - Verificar disponibilidade de uma série.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/language - Alterar o idioma do bot.\n/help - Mostrar esta mensagem.",
+        "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Verificar disponibilidade de um filme.\n/show <título> - Verificar disponibilidade de uma série.\n/friendrequest <movie|show> <título> - Pedir nova mídia.\n/check <movie|show> <título> - Checar se a mídia está no Plex/Radarr/Sonarr.\n/language - Alterar o idioma do bot.\n/help - Mostrar esta mensagem.",
         "no_results": "🤷 Nenhum resultado encontrado para '{query}'. Tente ser mais específico.",
         "provide_title": "Por favor, forneça um título. Uso: /{command} <título>",
         "check_usage": "Uso: /check <movie|show> <título>",
+        "friendrequest_usage": "Uso: /friendrequest <movie|show> <título>",
         "add_button": "➕ Adicionar",
         "add_button_4k": "➕ Adicionar 4K",
         "check_button": "🔎 Checar Status",
@@ -197,6 +208,11 @@ translations = {
         "checking_status": "🔎 Verificando '{title}'...",
         "media_unavailable": "'{title}' não parece estar disponível.",
         "media_unavailable_friend": "ℹ️ '{title}' não está disponível. Peça para um administrador adicioná-lo.",
+        "request_sent": "✅ Seu pedido para '{title}' foi enviado para aprovação do admin.",
+        "request_limit_reached": "🚫 Você atingiu seu limite diário de 3 pedidos.",
+        "request_already_in_library": "✅ Ótima notícia! '{title}' já está na biblioteca.",
+        "request_approved_notification": "🎉 Boas notícias! Seu pedido para '{title}' foi aprovado e está sendo adicionado.",
+        "request_declined_notification": "😞 Desculpe, seu pedido para '{title}' foi recusado pelo admin.",
         "setup_menu_prompt": "⚙️ *Menu de Configuração*\n\nEscolha uma seção para configurar, ou reconfigure tudo.",
         "setup_section_plex": "Plex",
         "setup_section_tmdb": "TMDB",
@@ -224,7 +240,7 @@ translations = {
         "service_add_fail": "❌ Falha ao adicionar '{title}' ao {service_name}.",
         "check_sonarr_radarr_found": "✅ '{title}' já está no {service_name}.",
         "check_not_found": "❌ '{title}' não foi encontrado no seu Plex, Radarr ou Sonarr.",
-        "friends_menu_prompt": "� *Gerenciamento de Amigos*\n\nO que você gostaria de fazer?",
+        "friends_menu_prompt": "👥 *Gerenciamento de Amigos*\n\nO que você gostaria de fazer?",
         "friends_button_add": "➕ Adicionar Amigo",
         "friends_button_remove": "➖ Remover Amigo",
         "friends_button_list": "📋 Listar Amigos",
@@ -252,7 +268,7 @@ translations = {
         "debug_end": "Debug finalizado.",
     },
     'es': {
-        "start_message": "? ¡Bienvenido! Por favor, usa /login (admin) o /auth `<code>` (amigo) para empezar.",
+        "start_message": "👋 ¡Bienvenido! Por favor, usa /login (admin) o /auth (amigo) para empezar.",
         "login_prompt_user": "🔑 Por favor, introduce el nombre de usuario del admin:",
         "login_prompt_pass": "🔑 Por favor, introduce la contraseña:",
         "login_success": "✅ ¡Inicio de sesión exitoso! Bienvenido de nuevo.",
@@ -260,8 +276,9 @@ translations = {
         "login_already_done": "✅ Ya has iniciado sesión.",
         "logout_success": "✅ Has cerrado la sesión correctamente.",
         "auth_required": "🚫 Necesitas estar autenticado. Por favor, usa /login o /auth.",
-        "unauthenticated_message": "No estás conectado. Por favor, usa /login o envía tu código de amigo con /auth `<code>`.",
+        "unauthenticated_message": "No estás conectado. Por favor, usa /login o envía tu código de amigo con /auth.",
         "admin_required": "⛔ Este comando es solo para administradores.",
+        "auth_prompt": "👋 ¡Bienvenido! Por favor, introduce tu código de amigo:",
         "auth_friend_code_invalid": "❌ Código de amigo inválido o caducado. Inténtalo de nuevo o escribe /cancelar.",
         "auth_friend_code_accepted": "✅ ¡Código de amigo aceptado! Bienvenido.",
         "auth_cancelled": "Autenticación cancelada.",
@@ -269,10 +286,11 @@ translations = {
         "cancel_button": "❌ Cancelar",
         "new_friend_code": "🔑 Nuevo código de amigo de un solo uso para '{name}' generado. Es válido por 24 horas:\n\n`{code}`",
         "help_admin": "👑 *Comandos de Admin*\n\n/movie <título> - Buscar y añadir una película.\n/movie4k <título> - Añadir una película en 4K.\n/show <título> - Buscar y añadir una serie.\n/show4k <título> - Añadir una serie en 4K.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/friends - Gestionar amigos.\n/setup - (Re)configurar el bot.\n/language - Cambiar el idioma del bot.\n/streaming - Listar códigos de streaming disponibles.\n/debug <movie|show> <título> - Diagnosticar la verificación de un medio.\n/logout - Cerrar tu sesión.\n/help - Mostrar este mensaje.",
-        "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Comprobar la disponibilidad de una película.\n/show <título> - Comprobar la disponibilidad de una serie.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/language - Cambiar el idioma del bot.\n/help - Mostrar este mensaje.",
+        "help_friend": "👥 *Comandos de Amigo*\n\n/movie <título> - Comprobar la disponibilidad de una película.\n/show <título> - Comprobar la disponibilidad de una serie.\n/friendrequest <movie|show> <título> - Solicitar nuevo medio.\n/check <movie|show> <título> - Comprobar si el medio está en Plex/Radarr/Sonarr.\n/language - Cambiar el idioma del bot.\n/help - Mostrar este mensaje.",
         "no_results": "🤷 No se encontraron resultados para '{query}'. Intenta ser más específico.",
         "provide_title": "Por favor, proporciona un título. Uso: /{command} <título>",
         "check_usage": "Uso: /check <movie|show> <título>",
+        "friendrequest_usage": "Uso: /friendrequest <movie|show> <título>",
         "add_button": "➕ Añadir",
         "add_button_4k": "➕ Añadir 4K",
         "check_button": "🔎 Comprobar Estado",
@@ -282,6 +300,11 @@ translations = {
         "checking_status": "🔎 Comprobando '{title}'...",
         "media_unavailable": "'{title}' no parece estar disponible.",
         "media_unavailable_friend": "ℹ️ '{title}' no está disponible. Pide a un administrador que lo añada.",
+        "request_sent": "✅ Tu solicitud para '{title}' ha sido enviada al admin para su aprobación.",
+        "request_limit_reached": "🚫 Has alcanzado tu límite diario de 3 solicitudes.",
+        "request_already_in_library": "✅ ¡Buenas noticias! '{title}' ya está en la biblioteca.",
+        "request_approved_notification": "🎉 ¡Buenas noticias! Tu solicitud para '{title}' ha sido aprobada y se está añadiendo.",
+        "request_declined_notification": "😞 Lo siento, tu solicitud para '{title}' fue rechazada por el admin.",
         "setup_menu_prompt": "⚙️ *Menú de Configuración*\n\nElige una sección para configurar, o reconfigura todo.",
         "setup_section_plex": "Plex",
         "setup_section_tmdb": "TMDB",
@@ -340,7 +363,7 @@ translations = {
 
 def get_text(key, lang='en'):
     """Fetches a translation string, falling back to English."""
-    return translations.get(lang, translations['en']).get(key, f"_{key.upper()}_")
+    return translations.get(lang, translations.get('en', {})).get(key, f"_{key.upper()}_")
 
 
 # --- Configuration Management ---
@@ -488,6 +511,22 @@ def check_plex_library(title, year):
     except Exception as e:
         logger.error(f"Error checking Plex library: {e}")
     return None
+
+def _search_tmdb(query, media_type):
+    """Helper function to search TMDB."""
+    lang = CONFIG.get('language')
+    tmdb_key = CONFIG.get('tmdb', {}).get('api_key')
+    if not tmdb_key:
+        return [], "TMDB API key not configured."
+    
+    internal_media_type = 'tv' if media_type == 'show' else 'movie'
+    url = f"https://api.themoviedb.org/3/search/{internal_media_type}"
+    params = {'api_key': tmdb_key, 'query': query, 'language': lang, 'include_adult': 'false'}
+    data = _api_get_request(url, params)
+    
+    if data and 'results' in data:
+        return data['results'], None
+    return [], f"No results found for '{query}'."
 
 @config_required('TMDB')
 def check_streaming_services(tmdb_id, media_type, title):
@@ -648,17 +687,24 @@ def logout_cmd(update: Update, context: CallbackContext):
     context.user_data.clear()
     update.message.reply_text(get_text('logout_success', CONFIG.get('language')))
 
-def auth_cmd(update: Update, context: CallbackContext):
-    """Handles friend authentication."""
-    global CONFIG
-    if not context.args:
-        update.message.reply_text(get_text("auth_prompt", CONFIG.get('language')))
-        return
+def auth_cmd(update: Update, context: CallbackContext) -> int:
+    """Starts the friend authentication process."""
+    if context.args:
+        return _process_auth_code(update, context, context.args[0])
     
-    code = context.args[0]
+    update.message.reply_text(get_text("auth_prompt", CONFIG.get('language')))
+    return AWAIT_FRIEND_CODE
+
+def auth_receive_code(update: Update, context: CallbackContext) -> int:
+    """Receives and processes the friend code from the user."""
+    return _process_auth_code(update, context, update.message.text)
+
+def _process_auth_code(update: Update, context: CallbackContext, code: str) -> int:
+    """Internal logic to validate a friend code and grant access."""
+    global CONFIG
     lang = CONFIG.get('language')
     friend_name = None
-    
+
     active_codes = {c: data for c, data in CONFIG.get('friend_codes', {}).items() if datetime.fromisoformat(data['expires']) >= datetime.now()}
     if len(active_codes) != len(CONFIG.get('friend_codes', {})):
         CONFIG['friend_codes'] = active_codes
@@ -673,6 +719,14 @@ def auth_cmd(update: Update, context: CallbackContext):
         update.message.reply_text(get_text('auth_friend_code_accepted', lang))
     else:
         update.message.reply_text(get_text('auth_friend_code_invalid', lang))
+    
+    return ConversationHandler.END
+
+def auth_cancel(update: Update, context: CallbackContext) -> int:
+    """Cancels the authentication flow."""
+    update.message.reply_text(get_text('auth_cancelled', CONFIG.get('language')))
+    return ConversationHandler.END
+
 
 @auth_required
 def help_cmd(update: Update, context: CallbackContext):
@@ -789,6 +843,50 @@ def button_callback_handler(update: Update, context: CallbackContext):
     elif action == 'check':
         perform_simplified_check(context, media_info, query.message.chat_id)
 
+def handle_request_approval(update: Update, context: CallbackContext):
+    """Handles the admin's response to a friend's request."""
+    query = update.callback_query
+    query.answer()
+    
+    parts = query.data.split('_')
+    action = parts[0]
+    lang = CONFIG.get('language')
+    
+    if action == 'approve':
+        quality, media_type, tmdb_id_str, friend_id_str = parts[1], parts[2], parts[3], parts[4]
+        is_4k = quality == '4k'
+        tmdb_id = int(tmdb_id_str)
+        friend_id = int(friend_id_str)
+
+        details_url = f"https://api.themoviedb.org/3/{'tv' if media_type == 'show' else 'movie'}/{tmdb_id}"
+        params = {'api_key': CONFIG['tmdb']['api_key'], 'language': lang}
+        item = _api_get_request(details_url, params)
+        
+        if not item:
+            context.bot.send_message(chat_id=CONFIG['admin_user_id'], text="Error fetching media details to approve request.")
+            return
+
+        title = item.get('title') or item.get('name')
+        release_date = item.get('release_date') or item.get('first_air_date', '')
+        year = int(release_date.split('-')[0]) if release_date else 0
+        media_info = {'title': title, 'year': year, 'tmdb_id': tmdb_id, 'media_type': media_type}
+        
+        service_name = 'radarr' if media_type == 'movie' else 'sonarr'
+        add_result = add_to_arr_service(media_info, service_name, is_4k)
+        
+        query.edit_message_caption(caption=f"{query.message.caption}\n\n--- \n✅ Request Approved. Result: {add_result}", parse_mode=ParseMode.MARKDOWN)
+        context.bot.send_message(chat_id=friend_id, text=get_text('request_approved_notification', lang).format(title=title))
+
+    elif action == 'decline':
+        media_type, tmdb_id_str, friend_id_str = parts[1], parts[2], parts[3]
+        details_url = f"https://api.themoviedb.org/3/{'tv' if media_type == 'show' else 'movie'}/{tmdb_id_str}"
+        params = {'api_key': CONFIG['tmdb']['api_key'], 'language': lang}
+        item = _api_get_request(details_url, params)
+        title = item.get('title') or item.get('name') if item else "your request"
+
+        query.edit_message_caption(caption=f"{query.message.caption}\n\n--- \n❌ Request Declined.", parse_mode=ParseMode.MARKDOWN)
+        context.bot.send_message(chat_id=int(friend_id_str), text=get_text('request_declined_notification', lang).format(title=title))
+
 def perform_full_check_and_act(context: CallbackContext, media_info: dict, chat_id: int, user_id: int, is_4k: bool = False):
     title, year, tmdb_id = media_info['title'], media_info['year'], media_info['tmdb_id']
     media_type = 'tv' if media_info['media_type'] == 'show' else 'movie'
@@ -862,14 +960,14 @@ def search_cmd(update: Update, context: CallbackContext, media_type: str, is_4k:
         return
     
     query = " ".join(context.args)
-    tmdb_key = CONFIG['tmdb']['api_key']
-    internal_media_type = 'tv' if media_type == 'show' else 'movie'
-    url = f"https://api.themoviedb.org/3/search/{internal_media_type}"
-    params = {'api_key': tmdb_key, 'query': query, 'language': lang, 'include_adult': 'false'}
-    data = _api_get_request(url, params)
+    results, error = _search_tmdb(query, media_type)
     
-    if data and data.get('results'):
-        _display_search_results(update, context, data['results'], media_type, mode='add', is_4k=is_4k)
+    if error:
+        update.message.reply_text(error)
+        return
+    
+    if results:
+        _display_search_results(update, context, results, media_type, mode='add', is_4k=is_4k)
     else:
         update.message.reply_text(get_text('no_results', lang).format(query=query))
 
@@ -886,14 +984,14 @@ def check_cmd(update: Update, context: CallbackContext):
         update.message.reply_text(get_text('check_usage', lang))
         return
 
-    tmdb_key = CONFIG['tmdb']['api_key']
-    internal_media_type = 'tv' if media_type == 'show' else 'movie'
-    url = f"https://api.themoviedb.org/3/search/{internal_media_type}"
-    params = {'api_key': tmdb_key, 'query': query, 'language': lang, 'include_adult': 'false'}
-    data = _api_get_request(url, params)
+    results, error = _search_tmdb(query, media_type)
     
-    if data and data.get('results'):
-        _display_search_results(update, context, data['results'], media_type, mode='check')
+    if error:
+        update.message.reply_text(error)
+        return
+
+    if results:
+        _display_search_results(update, context, results, media_type, mode='check')
     else:
         update.message.reply_text(get_text('no_results', lang).format(query=query))
 
@@ -916,21 +1014,18 @@ def debug_cmd(update: Update, context: CallbackContext):
 
     report('debug_start', query=query, media_type=media_type)
     report('debug_tmdb_search')
-    tmdb_key = CONFIG.get('tmdb', {}).get('api_key')
-    if not tmdb_key:
-        report("ERROR: TMDB API Key not configured.")
+    
+    results, error = _search_tmdb(query, media_type)
+    
+    if error:
+        report("ERROR: " + error)
         return
 
-    internal_media_type = 'tv' if media_type == 'show' else 'movie'
-    url = f"https://api.themoviedb.org/3/search/{internal_media_type}"
-    params = {'api_key': tmdb_key, 'query': query, 'language': lang, 'include_adult': 'false'}
-    data = _api_get_request(url, params)
-
-    if not data or not data.get('results'):
+    if not results:
         report('debug_tmdb_not_found', query=query)
         return
 
-    item = data['results'][0]
+    item = results[0]
     title = item.get('title', item.get('name'))
     release_date = item.get('release_date', item.get('first_air_date', ''))
     year = int(release_date.split('-')[0]) if release_date else 0
@@ -942,6 +1037,7 @@ def debug_cmd(update: Update, context: CallbackContext):
     else: report('debug_plex_fail')
 
     report('debug_streaming_check')
+    internal_media_type = 'tv' if media_type == 'show' else 'movie'
     if (streaming_result := check_streaming_services(tmdb_id, internal_media_type, title)): report('debug_streaming_success', streaming_result=streaming_result)
     else: report('debug_streaming_fail')
 
@@ -1191,16 +1287,16 @@ def setup_overseerr_api_key(update, context):
         update.message.reply_text(get_text('setup_saved', CONFIG.get('language')))
     else:
         update.message.reply_text(get_text('setup_error_saving', CONFIG.get('language')))
-    
-    # Clean up only setup-related keys
     context.user_data.pop('setup_data', None)
     context.user_data.pop('setup_mode', None)
     return ConversationHandler.END
 
 def cancel_setup(update: Update, context: CallbackContext) -> int:
     # Clear only setup-related data, preserving login state
-    context.user_data.pop('setup_data', None)
-    context.user_data.pop('setup_mode', None)
+    if 'setup_data' in context.user_data:
+        del context.user_data['setup_data']
+    if 'setup_mode' in context.user_data:
+        del context.user_data['setup_mode']
         
     update.message.reply_text(get_text('setup_cancelled', CONFIG.get('language')))
     return ConversationHandler.END
@@ -1326,6 +1422,12 @@ def main() -> None:
     updater = Updater(bot_token, persistence=None, use_context=True)
     dispatcher = updater.dispatcher
     
+    # Initialize the friend request module with necessary functions from the main bot
+    friend_requests.initialize_request_module(_search_tmdb, check_plex_library, get_text)
+
+    # Pass the global CONFIG to the friend_requests module
+    dispatcher.bot_data['config'] = CONFIG
+    
     login_conv = ConversationHandler(
         entry_points=[CommandHandler('login', login_cmd)],
         states={
@@ -1333,6 +1435,14 @@ def main() -> None:
             AWAIT_LOGIN_PASSWORD: [MessageHandler(Filters.text & ~Filters.command, check_login_credentials)],
         },
         fallbacks=[CommandHandler('cancel', cancel_setup)],
+    )
+
+    auth_conv = ConversationHandler(
+        entry_points=[CommandHandler('auth', auth_cmd)],
+        states={
+            AWAIT_FRIEND_CODE: [MessageHandler(Filters.text & ~Filters.command, auth_receive_code)]
+        },
+        fallbacks=[CommandHandler('cancel', auth_cancel)]
     )
     
     setup_conv = ConversationHandler(
@@ -1377,7 +1487,7 @@ def main() -> None:
 
     dispatcher.add_handler(CommandHandler("start", start_cmd))
     dispatcher.add_handler(login_conv)
-    dispatcher.add_handler(CommandHandler("auth", auth_cmd))
+    dispatcher.add_handler(auth_conv)
     dispatcher.add_handler(CommandHandler("logout", logout_cmd))
     dispatcher.add_handler(setup_conv)
     dispatcher.add_handler(friends_conv)
@@ -1386,11 +1496,15 @@ def main() -> None:
     dispatcher.add_handler(CommandHandler("language", language_cmd))
     dispatcher.add_handler(CommandHandler("streaming", streaming_cmd))
     dispatcher.add_handler(CommandHandler("check", check_cmd))
+    dispatcher.add_handler(CommandHandler("friendrequest", friend_requests.handle_friend_request))
     dispatcher.add_handler(CommandHandler("movie", lambda u, c: search_cmd(u, c, 'movie')))
     dispatcher.add_handler(CommandHandler("show", lambda u, c: search_cmd(u, c, 'show')))
     dispatcher.add_handler(CommandHandler("movie4k", lambda u, c: search_cmd(u, c, 'movie', is_4k=True)))
     dispatcher.add_handler(CommandHandler("show4k", lambda u, c: search_cmd(u, c, 'show', is_4k=True)))
-    dispatcher.add_handler(CallbackQueryHandler(button_callback_handler))
+    dispatcher.add_handler(CallbackQueryHandler(button_callback_handler, pattern="^(add|check|nav)_"))
+    dispatcher.add_handler(CallbackQueryHandler(handle_request_approval, pattern="^(approve|decline)_"))
+    dispatcher.add_handler(CallbackQueryHandler(set_language_callback, pattern="^lang_"))
+
 
     # This handler catches any message or command not handled above
     # It must be added last among the message/command handlers
@@ -1403,3 +1517,4 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
